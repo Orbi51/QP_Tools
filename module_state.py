@@ -15,6 +15,7 @@ def is_module_enabled(module_name):
             "EdgeSelect": "edge_select_enabled",
             "CollectionOffset": "collection_offset_enabled",
             "BevelWeight": "bevel_weight_enabled",
+            "FloatingPanel": "floating_panel_enabled",
             "LatticeSetup": "lattice_setup_enabled",
             "MaterialList": "materiallist_enabled",
             "CleanUp": "cleanup_enabled",

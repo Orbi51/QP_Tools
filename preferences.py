@@ -72,6 +72,7 @@ class QP_OT_toggle_module(Operator):
             "edge_select_enabled": "Mark edges for Draw Array EdgeSelect and manage vertex groups",
             "collection_offset_enabled": "Set the offset for collections based on selection",
             "bevel_weight_enabled": "Set bevel weight for selected vertex or edges",
+            "floating_panel_enabled": "Create floating viewport windows from the 3D View",
             "lattice_setup_enabled": "Create a lattice around selected objects and add modifiers",
             "materiallist_enabled": "Browse and apply materials from a searchable list",
             "cleanup_enabled": "Clean up and organize duplicate materials and node groups",
@@ -669,6 +670,11 @@ class QP_Tools_Preferences(AddonPreferences):
         default=True,
         update=update_module_state
     )
+    floating_panel_enabled: BoolProperty(
+        name="Floating Panel",
+        default=True,
+        update=update_module_state
+    )
     lattice_setup_enabled: BoolProperty(
         name="Lattice Setup",
         default=True,
@@ -812,6 +818,7 @@ class QP_Tools_Preferences(AddonPreferences):
             draw_toggle_button(col2, "edge_select_enabled", "Assign VGroup")
             draw_toggle_button(col2, "collection_offset_enabled", "Collection Offset")
             draw_toggle_button(col2, "bevel_weight_enabled", "Bevel Weight")
+            draw_toggle_button(col2, "floating_panel_enabled", "Floating Panel")
             draw_toggle_button(col2, "lattice_setup_enabled", "Lattice Setup")
             draw_toggle_button(col2, "materiallist_enabled", "Material List")
             draw_toggle_button(col2, "cleanup_enabled", "CleanUp")
@@ -871,12 +878,13 @@ def reset_module_changes(_):
         # Only try to store values if we have a valid scene
         if hasattr(bpy.context, 'scene') and bpy.context.scene is not None:
             # Store current values of all module properties
-            for prop in ["link_node_groups_enabled", "texture_set_builder_enabled", 
+            for prop in ["link_node_groups_enabled", "texture_set_builder_enabled",
                         "project_box_flat_enabled", "edge_select_enabled",
                         "collection_offset_enabled", "bevel_weight_enabled",
-                        "lattice_setup_enabled", "materiallist_enabled",
-                        "cleanup_enabled", "qp_tools_pie_menu_enabled", 
-                        "asset_browser_pie_enabled", "quick_asset_library_enabled"]:
+                        "floating_panel_enabled", "lattice_setup_enabled",
+                        "materiallist_enabled", "cleanup_enabled",
+                        "qp_tools_pie_menu_enabled", "asset_browser_pie_enabled",
+                        "quick_asset_library_enabled"]:
                 if hasattr(prefs, prop):
                     bpy.context.scene[f"qp_prev_{prop}"] = getattr(prefs, prop)       
 
