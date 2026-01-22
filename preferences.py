@@ -455,6 +455,12 @@ class QP_PieMenuItem(PropertyGroup):
     )
 
     # Property action settings
+    smart_toggle_id: StringProperty(
+        name="Smart Toggle",
+        default="",
+        description="ID of the smart toggle preset"
+    )
+
     property_data_path: StringProperty(
         name="Property",
         default="",

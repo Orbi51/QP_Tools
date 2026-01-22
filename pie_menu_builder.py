@@ -317,6 +317,272 @@ SMART_ACTIONS = {
 }
 
 
+# =============================================================================
+# Smart Toggles - Predefined property toggles
+# =============================================================================
+
+SMART_TOGGLES = {
+    # Tool Settings
+    'SNAP': {
+        'name': "Snapping",
+        'description': "Toggle snapping on/off",
+        'icon': 'SNAP_ON',
+        'context': 'TOOL_SETTINGS',
+        'property': 'use_snap',
+    },
+    'PROPORTIONAL': {
+        'name': "Proportional Editing",
+        'description': "Toggle proportional editing",
+        'icon': 'PROP_ON',
+        'context': 'TOOL_SETTINGS',
+        'property': 'use_proportional_edit',
+    },
+    'PROPORTIONAL_CONNECTED': {
+        'name': "Proportional Connected",
+        'description': "Toggle connected-only proportional editing",
+        'icon': 'PROP_CON',
+        'context': 'TOOL_SETTINGS',
+        'property': 'use_proportional_connected',
+    },
+    'AUTOMERGE': {
+        'name': "Auto Merge",
+        'description': "Toggle auto merge vertices",
+        'icon': 'AUTOMERGE_ON',
+        'context': 'TOOL_SETTINGS',
+        'property': 'use_mesh_automerge',
+    },
+    'LOCK_OBJECT_MODE': {
+        'name': "Lock Object Modes",
+        'description': "Toggle lock object modes",
+        'icon': 'LOCKED',
+        'context': 'TOOL_SETTINGS',
+        'property': 'lock_object_mode',
+    },
+    # Overlay Settings
+    'WIREFRAME_OVERLAY': {
+        'name': "Wireframe Overlay",
+        'description': "Toggle wireframe overlay on objects",
+        'icon': 'SHADING_WIRE',
+        'context': 'SPACE',
+        'property': 'overlay.show_wireframes',
+    },
+    'XRAY': {
+        'name': "X-Ray",
+        'description': "Toggle X-Ray mode",
+        'icon': 'XRAY',
+        'context': 'SPACE',
+        'property': 'shading.show_xray',
+    },
+    'FACE_ORIENTATION': {
+        'name': "Face Orientation",
+        'description': "Toggle face orientation overlay",
+        'icon': 'NORMALS_FACE',
+        'context': 'SPACE',
+        'property': 'overlay.show_face_orientation',
+    },
+    'SHOW_OVERLAYS': {
+        'name': "Show Overlays",
+        'description': "Toggle all overlays",
+        'icon': 'OVERLAY',
+        'context': 'SPACE',
+        'property': 'overlay.show_overlays',
+    },
+    'SHOW_FLOOR': {
+        'name': "Show Floor",
+        'description': "Toggle floor grid",
+        'icon': 'MESH_GRID',
+        'context': 'SPACE',
+        'property': 'overlay.show_floor',
+    },
+    'SHOW_AXIS_X': {
+        'name': "Show X Axis",
+        'description': "Toggle X axis line",
+        'icon': 'EVENT_X',
+        'context': 'SPACE',
+        'property': 'overlay.show_axis_x',
+    },
+    'SHOW_AXIS_Y': {
+        'name': "Show Y Axis",
+        'description': "Toggle Y axis line",
+        'icon': 'EVENT_Y',
+        'context': 'SPACE',
+        'property': 'overlay.show_axis_y',
+    },
+    'SHOW_AXIS_Z': {
+        'name': "Show Z Axis",
+        'description': "Toggle Z axis line",
+        'icon': 'EVENT_Z',
+        'context': 'SPACE',
+        'property': 'overlay.show_axis_z',
+    },
+    'SHOW_CURSOR': {
+        'name': "Show 3D Cursor",
+        'description': "Toggle 3D cursor visibility",
+        'icon': 'PIVOT_CURSOR',
+        'context': 'SPACE',
+        'property': 'overlay.show_cursor',
+    },
+    'SHOW_OBJECT_ORIGINS': {
+        'name': "Show Origins",
+        'description': "Toggle object origins",
+        'icon': 'OBJECT_ORIGIN',
+        'context': 'SPACE',
+        'property': 'overlay.show_object_origins',
+    },
+    'SHOW_RELATIONSHIP_LINES': {
+        'name': "Relationship Lines",
+        'description': "Toggle relationship lines",
+        'icon': 'CONSTRAINT',
+        'context': 'SPACE',
+        'property': 'overlay.show_relationship_lines',
+    },
+    'SHOW_OUTLINE_SELECTED': {
+        'name': "Outline Selected",
+        'description': "Toggle outline on selected objects",
+        'icon': 'SELECT_SET',
+        'context': 'SPACE',
+        'property': 'overlay.show_outline_selected',
+    },
+    'SHOW_BONES': {
+        'name': "Show Bones",
+        'description': "Toggle bone visibility",
+        'icon': 'BONE_DATA',
+        'context': 'SPACE',
+        'property': 'overlay.show_bones',
+    },
+    'SHOW_MOTION_PATHS': {
+        'name': "Motion Paths",
+        'description': "Toggle motion paths",
+        'icon': 'ANIM_DATA',
+        'context': 'SPACE',
+        'property': 'overlay.show_motion_paths',
+    },
+    # Edit Mode Overlays
+    'SHOW_EDGE_CREASE': {
+        'name': "Edge Crease",
+        'description': "Toggle edge crease display",
+        'icon': 'EDGESEL',
+        'context': 'SPACE',
+        'property': 'overlay.show_edge_crease',
+    },
+    'SHOW_EDGE_SHARP': {
+        'name': "Edge Sharp",
+        'description': "Toggle sharp edge display",
+        'icon': 'MOD_EDGESPLIT',
+        'context': 'SPACE',
+        'property': 'overlay.show_edge_sharp',
+    },
+    'SHOW_EDGE_BEVEL_WEIGHT': {
+        'name': "Edge Bevel Weight",
+        'description': "Toggle bevel weight display",
+        'icon': 'MOD_BEVEL',
+        'context': 'SPACE',
+        'property': 'overlay.show_edge_bevel_weight',
+    },
+    'SHOW_EDGE_SEAMS': {
+        'name': "Edge Seams",
+        'description': "Toggle UV seam display",
+        'icon': 'UV_DATA',
+        'context': 'SPACE',
+        'property': 'overlay.show_edge_seams',
+    },
+    'SHOW_FACE_NORMALS': {
+        'name': "Face Normals",
+        'description': "Toggle face normals display",
+        'icon': 'NORMALS_FACE',
+        'context': 'SPACE',
+        'property': 'overlay.show_face_normals',
+    },
+    'SHOW_VERTEX_NORMALS': {
+        'name': "Vertex Normals",
+        'description': "Toggle vertex normals display",
+        'icon': 'NORMALS_VERTEX',
+        'context': 'SPACE',
+        'property': 'overlay.show_vertex_normals',
+    },
+    'SHOW_STATVIS': {
+        'name': "Mesh Analysis",
+        'description': "Toggle mesh analysis overlay",
+        'icon': 'VIEWZOOM',
+        'context': 'SPACE',
+        'property': 'overlay.show_statvis',
+    },
+    # Gizmos
+    'SHOW_GIZMO': {
+        'name': "Show Gizmos",
+        'description': "Toggle gizmos visibility",
+        'icon': 'GIZMO',
+        'context': 'SPACE',
+        'property': 'show_gizmo',
+    },
+    'SHOW_GIZMO_NAVIGATE': {
+        'name': "Navigation Gizmo",
+        'description': "Toggle navigation gizmo",
+        'icon': 'VIEW_PAN',
+        'context': 'SPACE',
+        'property': 'show_gizmo_navigate',
+    },
+    'SHOW_GIZMO_TOOL': {
+        'name': "Tool Gizmo",
+        'description': "Toggle active tool gizmo",
+        'icon': 'TOOL_SETTINGS',
+        'context': 'SPACE',
+        'property': 'show_gizmo_tool',
+    },
+    'SHOW_GIZMO_CONTEXT': {
+        'name': "Context Gizmo",
+        'description': "Toggle context gizmo",
+        'icon': 'OBJECT_DATA',
+        'context': 'SPACE',
+        'property': 'show_gizmo_context',
+    },
+    # Shading
+    'USE_SCENE_LIGHTS': {
+        'name': "Scene Lights",
+        'description': "Toggle scene lights in viewport",
+        'icon': 'LIGHT',
+        'context': 'SPACE',
+        'property': 'shading.use_scene_lights',
+    },
+    'USE_SCENE_WORLD': {
+        'name': "Scene World",
+        'description': "Toggle scene world in viewport",
+        'icon': 'WORLD',
+        'context': 'SPACE',
+        'property': 'shading.use_scene_world',
+    },
+    'SHOW_BACKFACE_CULLING': {
+        'name': "Backface Culling",
+        'description': "Toggle backface culling",
+        'icon': 'FACESEL',
+        'context': 'SPACE',
+        'property': 'shading.show_backface_culling',
+    },
+    'SHOW_CAVITY': {
+        'name': "Cavity",
+        'description': "Toggle cavity shading",
+        'icon': 'MATSPHERE',
+        'context': 'SPACE',
+        'property': 'shading.show_cavity',
+    },
+    'SHOW_SHADOWS': {
+        'name': "Shadows",
+        'description': "Toggle viewport shadows",
+        'icon': 'LIGHT_SUN',
+        'context': 'SPACE',
+        'property': 'shading.show_shadows',
+    },
+    # Scene Settings
+    'USE_GRAVITY': {
+        'name': "Use Gravity",
+        'description': "Toggle gravity in physics",
+        'icon': 'FORCE_FORCE',
+        'context': 'SCENE',
+        'property': 'use_gravity',
+    },
+}
+
+
 def get_smart_action_items(self, context):
     """Return smart actions as enum items"""
     items = [('NONE', "Select Action...", "Choose a smart action")]
@@ -838,6 +1104,7 @@ class QP_OT_DuplicateCustomPieMenu(Operator):
             new_item.shortcut_ctrl = src_item.shortcut_ctrl
             new_item.shortcut_alt = src_item.shortcut_alt
             new_item.shortcut_shift = src_item.shortcut_shift
+            new_item.smart_toggle_id = src_item.smart_toggle_id
             new_item.property_data_path = src_item.property_data_path
             new_item.property_context = src_item.property_context
             new_item.pie_position = src_item.pie_position
@@ -1479,6 +1746,59 @@ class QP_OT_SelectSmartAction(Operator):
         return {'FINISHED'}
 
 
+class QP_OT_SelectSmartToggle(Operator):
+    """Select a smart toggle for a pie menu item"""
+    bl_idname = "qp.select_smart_toggle"
+    bl_label = "Select Smart Toggle"
+    bl_property = "toggle"
+
+    menu_id: StringProperty()
+    item_id: StringProperty()
+
+    toggle: EnumProperty(
+        name="Toggle",
+        items=lambda self, context: QP_OT_SelectSmartToggle.get_toggle_items(self, context)
+    )
+
+    @staticmethod
+    def get_toggle_items(self, context):
+        """Return smart toggles as enum items"""
+        items = []
+        for toggle_id, toggle_data in SMART_TOGGLES.items():
+            items.append((toggle_id, toggle_data['name'], toggle_data['description'], toggle_data.get('icon', 'DOT'), len(items)))
+        items.sort(key=lambda x: x[1])  # Sort alphabetically by name
+        return items
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__package__].preferences
+
+        for pie_menu in prefs.custom_pie_menus:
+            if pie_menu.id == self.menu_id:
+                for item in pie_menu.items:
+                    if item.id == self.item_id:
+                        item.smart_toggle_id = self.toggle
+                        # Get toggle data
+                        toggle_data = SMART_TOGGLES.get(self.toggle)
+                        if toggle_data:
+                            # Update name from toggle if default
+                            if item.name in ("New Item", f"Item {len(pie_menu.items)}"):
+                                item.name = toggle_data['name']
+                            # Set the property context and path from toggle data
+                            item.property_context = toggle_data['context']
+                            item.property_data_path = toggle_data['property']
+                            # Set icon if not already set
+                            if not item.icon or item.icon == 'NONE':
+                                item.icon = toggle_data.get('icon', 'NONE')
+                        bpy.ops.wm.save_userpref()
+                        return {'FINISHED'}
+
+        return {'CANCELLED'}
+
+    def invoke(self, context, event):
+        context.window_manager.invoke_search_popup(self)
+        return {'FINISHED'}
+
+
 class QP_OT_ToggleSmartActionContext(Operator):
     """Toggle a context for a smart action"""
     bl_idname = "qp.toggle_smart_action_context"
@@ -1995,8 +2315,20 @@ def draw_pie_item_editor(layout, pie_menu, item, index):
             clear_op.item_id = item.id
 
     elif item.action_type == 'PROPERTY_TOGGLE':
-        item_box.prop(item, "property_context", text="Context")
-        item_box.prop(item, "property_data_path", text="Property")
+        # Smart toggle selector
+        row = item_box.row(align=True)
+        toggle_data = SMART_TOGGLES.get(item.smart_toggle_id)
+        toggle_name = toggle_data['name'] if toggle_data else "Select Toggle..."
+        toggle_icon = toggle_data.get('icon', 'DOT') if toggle_data else 'DOT'
+        op = row.operator("qp.select_smart_toggle", text=toggle_name, icon=toggle_icon)
+        op.menu_id = pie_menu.id
+        op.item_id = item.id
+
+        # Show manual configuration option
+        manual_box = item_box.box()
+        manual_box.label(text="Manual Override:", icon='PREFERENCES')
+        manual_box.prop(item, "property_context", text="Context")
+        manual_box.prop(item, "property_data_path", text="Property")
 
     # Context rules
     draw_context_rules_ui(item_box, pie_menu, item)
@@ -2183,6 +2515,7 @@ classes = [
     QP_OT_SetIconValue,
     QP_OT_SearchOperator,
     QP_OT_SelectSmartAction,
+    QP_OT_SelectSmartToggle,
     QP_OT_ToggleSmartActionContext,
     QP_OT_ExecuteSmartAction,
     QP_OT_CaptureShortcut,
