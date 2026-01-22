@@ -21,6 +21,7 @@ def is_module_enabled(module_name):
             "CleanUp": "cleanup_enabled",
             "asset_browser_pie": "asset_browser_pie_enabled",
             "qp_tools_pie_menu": "qp_tools_pie_menu_enabled",
+            "pie_menu_builder": "pie_menu_builder_enabled",
             "quick_asset_library": "quick_asset_library_enabled",
             "ui": True  # UI is always enabled
         }

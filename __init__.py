@@ -37,6 +37,7 @@ modules = [
     "Project_Box_Flat",
     "TextureSet_builder",
     "asset_browser_pie",
+    "pie_menu_builder",
     "quick_asset_library",
     "qp_tools_panel",
 ]

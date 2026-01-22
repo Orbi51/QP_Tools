@@ -78,7 +78,8 @@ class QP_OT_toggle_module(Operator):
             "cleanup_enabled": "Clean up and organize duplicate materials and node groups",
             "asset_browser_pie_enabled": "Access asset libraries via a pie menu",
             "qp_tools_pie_menu_enabled": "Access tools and assets via a pie menu",
-            "quick_asset_library_enabled": "Quickly create and manage asset libraries"
+            "quick_asset_library_enabled": "Quickly create and manage asset libraries",
+            "pie_menu_builder_enabled": "Create custom pie menus with context-sensitive actions"
         }
         return module_tooltips.get(properties.module_prop, "Toggle the module on/off")
     
@@ -242,6 +243,361 @@ class QP_LibraryPG(PropertyGroup):
         default=False
     )
     index: StringProperty()
+
+
+# =============================================================================
+# Pie Menu Builder PropertyGroups
+# =============================================================================
+
+def get_key_items(self, context):
+    """Return available keyboard keys for shortcuts"""
+    keys = [
+        ('NONE', "None", "No key assigned"),
+        ('A', "A", ""), ('B', "B", ""), ('C', "C", ""), ('D', "D", ""),
+        ('E', "E", ""), ('F', "F", ""), ('G', "G", ""), ('H', "H", ""),
+        ('I', "I", ""), ('J', "J", ""), ('K', "K", ""), ('L', "L", ""),
+        ('M', "M", ""), ('N', "N", ""), ('O', "O", ""), ('P', "P", ""),
+        ('Q', "Q", ""), ('R', "R", ""), ('S', "S", ""), ('T', "T", ""),
+        ('U', "U", ""), ('V', "V", ""), ('W', "W", ""), ('X', "X", ""),
+        ('Y', "Y", ""), ('Z', "Z", ""),
+        ('ZERO', "0", ""), ('ONE', "1", ""), ('TWO', "2", ""), ('THREE', "3", ""),
+        ('FOUR', "4", ""), ('FIVE', "5", ""), ('SIX', "6", ""), ('SEVEN', "7", ""),
+        ('EIGHT', "8", ""), ('NINE', "9", ""),
+        ('F1', "F1", ""), ('F2', "F2", ""), ('F3', "F3", ""), ('F4', "F4", ""),
+        ('F5', "F5", ""), ('F6', "F6", ""), ('F7', "F7", ""), ('F8', "F8", ""),
+        ('F9', "F9", ""), ('F10', "F10", ""), ('F11', "F11", ""), ('F12', "F12", ""),
+        ('SPACE', "Space", ""), ('TAB', "Tab", ""),
+        ('ACCENT_GRAVE', "` (Accent)", ""),
+    ]
+    return keys
+
+
+class QP_ContextRule(PropertyGroup):
+    """Context rule for conditional item visibility"""
+
+    enabled: BoolProperty(
+        name="Enabled",
+        default=True,
+        description="Enable this rule"
+    )
+
+    rule_type: EnumProperty(
+        name="Rule Type",
+        items=[
+            ('MODE', "Mode", "Filter by Blender mode (Object, Edit, Sculpt, etc.)"),
+            ('OBJECT_TYPE', "Object Type", "Filter by active object type"),
+            ('SPACE_TYPE', "Space Type", "Filter by current editor type"),
+        ],
+        default='MODE',
+        description="Type of context rule"
+    )
+
+    mode_filter: EnumProperty(
+        name="Mode",
+        items=[
+            ('OBJECT', "Object Mode", ""),
+            ('EDIT_MESH', "Edit Mode (Mesh)", ""),
+            ('EDIT_CURVE', "Edit Mode (Curve)", ""),
+            ('EDIT_SURFACE', "Edit Mode (Surface)", ""),
+            ('EDIT_ARMATURE', "Edit Mode (Armature)", ""),
+            ('EDIT_METABALL', "Edit Mode (Metaball)", ""),
+            ('EDIT_LATTICE', "Edit Mode (Lattice)", ""),
+            ('EDIT_GPENCIL', "Edit Mode (Grease Pencil)", ""),
+            ('SCULPT', "Sculpt Mode", ""),
+            ('PAINT_WEIGHT', "Weight Paint", ""),
+            ('PAINT_VERTEX', "Vertex Paint", ""),
+            ('PAINT_TEXTURE', "Texture Paint", ""),
+            ('POSE', "Pose Mode", ""),
+            ('SCULPT_GPENCIL', "Sculpt (Grease Pencil)", ""),
+            ('PAINT_GPENCIL', "Draw (Grease Pencil)", ""),
+            ('WEIGHT_GPENCIL', "Weight Paint (Grease Pencil)", ""),
+            ('VERTEX_GPENCIL', "Vertex Paint (Grease Pencil)", ""),
+        ],
+        default='OBJECT',
+        description="Blender mode to match"
+    )
+
+    object_type_filter: EnumProperty(
+        name="Object Type",
+        items=[
+            ('MESH', "Mesh", ""),
+            ('CURVE', "Curve", ""),
+            ('SURFACE', "Surface", ""),
+            ('META', "Metaball", ""),
+            ('FONT', "Text", ""),
+            ('ARMATURE', "Armature", ""),
+            ('LATTICE', "Lattice", ""),
+            ('EMPTY', "Empty", ""),
+            ('GPENCIL', "Grease Pencil", ""),
+            ('CAMERA', "Camera", ""),
+            ('LIGHT', "Light", ""),
+            ('SPEAKER', "Speaker", ""),
+            ('LIGHT_PROBE', "Light Probe", ""),
+            ('VOLUME', "Volume", ""),
+        ],
+        default='MESH',
+        description="Object type to match"
+    )
+
+    space_type_filter: EnumProperty(
+        name="Space Type",
+        items=[
+            ('VIEW_3D', "3D Viewport", ""),
+            ('NODE_EDITOR', "Node Editor", ""),
+            ('IMAGE_EDITOR', "Image Editor", ""),
+            ('SEQUENCE_EDITOR', "Video Sequencer", ""),
+            ('CLIP_EDITOR', "Movie Clip Editor", ""),
+            ('DOPESHEET_EDITOR', "Dope Sheet", ""),
+            ('GRAPH_EDITOR', "Graph Editor", ""),
+            ('NLA_EDITOR', "NLA Editor", ""),
+            ('TEXT_EDITOR', "Text Editor", ""),
+        ],
+        default='VIEW_3D',
+        description="Editor type to match"
+    )
+
+    invert: BoolProperty(
+        name="Invert",
+        default=False,
+        description="Invert the rule result (NOT)"
+    )
+
+
+class QP_PieMenuItem(PropertyGroup):
+    """Single item in a custom pie menu"""
+
+    name: StringProperty(
+        name="Name",
+        default="New Item",
+        description="Display name for this item"
+    )
+
+    id: StringProperty(
+        name="ID",
+        default="",
+        description="Unique identifier for this item"
+    )
+
+    enabled: BoolProperty(
+        name="Enabled",
+        default=True,
+        description="Enable this item"
+    )
+
+    icon: StringProperty(
+        name="Icon",
+        default="NONE",
+        description="Blender icon name"
+    )
+
+    action_type: EnumProperty(
+        name="Item Type",
+        items=[
+            ('SMART_ACTION', "Smart Action", "Context-aware action that adapts to current mode"),
+            ('OPERATOR', "Operator", "Execute a specific Blender operator"),
+            ('SHORTCUT', "Shortcut", "Simulate a keyboard shortcut (e.g., Shift+D)"),
+            ('PROPERTY_TOGGLE', "Toggle", "Toggle a boolean property on/off"),
+        ],
+        default='SMART_ACTION',
+        description="Type of action this item performs"
+    )
+
+    # Smart action settings
+    smart_action_id: StringProperty(
+        name="Smart Action",
+        default="",
+        description="ID of the smart action to execute"
+    )
+
+    smart_action_contexts: StringProperty(
+        name="Enabled Contexts",
+        default="",
+        description="Comma-separated list of enabled contexts (empty = all)"
+    )
+
+    # Operator action settings
+    operator_idname: StringProperty(
+        name="Operator",
+        default="",
+        description="Blender operator identifier (e.g., mesh.subdivide)"
+    )
+
+    operator_props: StringProperty(
+        name="Operator Properties",
+        default="{}",
+        description="JSON string of operator properties"
+    )
+
+    # Shortcut action settings
+    shortcut_key: EnumProperty(
+        name="Key",
+        items=get_key_items,
+        default=0,
+        description="Key to simulate"
+    )
+
+    shortcut_ctrl: BoolProperty(
+        name="Ctrl",
+        default=False,
+        description="Include Ctrl modifier"
+    )
+
+    shortcut_alt: BoolProperty(
+        name="Alt",
+        default=False,
+        description="Include Alt modifier"
+    )
+
+    shortcut_shift: BoolProperty(
+        name="Shift",
+        default=False,
+        description="Include Shift modifier"
+    )
+
+    # Property action settings
+    property_data_path: StringProperty(
+        name="Property",
+        default="",
+        description="Property data path (e.g., use_snap)"
+    )
+
+    property_context: EnumProperty(
+        name="Context",
+        items=[
+            ('TOOL_SETTINGS', "Tool Settings", "Tool settings property"),
+            ('SCENE', "Scene", "Scene property"),
+            ('OBJECT', "Active Object", "Active object property"),
+            ('SPACE', "Space Data", "Current space/editor property"),
+        ],
+        default='TOOL_SETTINGS',
+        description="Where to find the property"
+    )
+
+    # Pie position (0-7 for 8 directions: W, E, S, N, NW, NE, SW, SE)
+    pie_position: IntProperty(
+        name="Position",
+        default=-1,
+        min=-1,
+        max=7,
+        description="Position in the pie menu (-1 = auto)"
+    )
+
+    # Context rules
+    context_rules: CollectionProperty(type=QP_ContextRule)
+
+    context_match_mode: EnumProperty(
+        name="Match Mode",
+        items=[
+            ('ANY', "Any", "Show if any rule matches"),
+            ('ALL', "All", "Show only if all rules match"),
+        ],
+        default='ANY',
+        description="How to combine multiple rules"
+    )
+
+    # UI state
+    expanded: BoolProperty(name="Expanded", default=False)
+
+
+def update_custom_pie_keymap(self, context):
+    """Callback when pie menu keymap settings change"""
+    try:
+        from . import pie_menu_builder
+        pie_menu_builder.PieMenuKeymapManager.refresh_pie_menu_keymap(self)
+    except Exception as e:
+        print(f"QP_Tools: Error updating pie menu keymap: {e}")
+    # Save preferences
+    try:
+        bpy.ops.wm.save_userpref()
+    except:
+        pass
+
+
+class QP_CustomPieMenu(PropertyGroup):
+    """A user-defined pie menu"""
+
+    name: StringProperty(
+        name="Menu Name",
+        default="New Pie Menu",
+        description="Name of this pie menu"
+    )
+
+    id: StringProperty(
+        name="Menu ID",
+        default="",
+        description="Unique identifier for this menu"
+    )
+
+    enabled: BoolProperty(
+        name="Enabled",
+        default=True,
+        update=update_custom_pie_keymap,
+        description="Enable this pie menu"
+    )
+
+    icon: StringProperty(
+        name="Icon",
+        default="NONE",
+        description="Icon for this menu"
+    )
+
+    # Keymap settings
+    keymap_key: EnumProperty(
+        name="Key",
+        items=get_key_items,
+        default=0,  # NONE
+        update=update_custom_pie_keymap,
+        description="Keyboard key to trigger this menu"
+    )
+
+    keymap_ctrl: BoolProperty(
+        name="Ctrl",
+        default=False,
+        update=update_custom_pie_keymap,
+        description="Require Ctrl modifier"
+    )
+
+    keymap_alt: BoolProperty(
+        name="Alt",
+        default=False,
+        update=update_custom_pie_keymap,
+        description="Require Alt modifier"
+    )
+
+    keymap_shift: BoolProperty(
+        name="Shift",
+        default=False,
+        update=update_custom_pie_keymap,
+        description="Require Shift modifier"
+    )
+
+    keymap_oskey: BoolProperty(
+        name="OS Key",
+        default=False,
+        update=update_custom_pie_keymap,
+        description="Require OS/Windows/Command modifier"
+    )
+
+    keymap_space: EnumProperty(
+        name="Editor",
+        items=[
+            ('VIEW_3D', "3D Viewport", "Works in 3D Viewport"),
+            ('NODE_EDITOR', "Node Editor", "Works in Node Editor"),
+            ('IMAGE_EDITOR', "Image Editor", "Works in Image Editor"),
+            ('EMPTY', "Global", "Works in all editors"),
+        ],
+        default='VIEW_3D',
+        update=update_custom_pie_keymap,
+        description="Editor where this shortcut works"
+    )
+
+    # Menu items
+    items: CollectionProperty(type=QP_PieMenuItem)
+    active_item_index: IntProperty(name="Active Item", default=0)
+
+    # UI state
+    expanded: BoolProperty(name="Expanded", default=True)
+    show_keymap_settings: BoolProperty(name="Show Keymap Settings", default=True)
 
 
 # Install library operator
@@ -628,6 +984,7 @@ class QP_Tools_Preferences(AddonPreferences):
             ('CORE', "Core Modules", "Core module settings"),
             ('ASSETS', "Tool Assets Pie Menu", "Asset library and shortcut settings"),
             ('ASSETBROWSER', "Asset Browser Pie Menu", "Asset browser pie menu settings"),
+            ('PIE_BUILDER', "Pie Menu Builder", "Create custom pie menus"),
         ],
         default='CORE'
     )
@@ -737,6 +1094,13 @@ class QP_Tools_Preferences(AddonPreferences):
         update=update_module_state
     )
 
+    # Pie Menu Builder properties
+    pie_menu_builder_enabled: BoolProperty(
+        name="Pie Menu Builder",
+        default=True,
+        update=update_module_state
+    )
+
     quick_asset_library_path: StringProperty(
         name="Default Library Path",
         description="Default path for the asset library",
@@ -756,7 +1120,10 @@ class QP_Tools_Preferences(AddonPreferences):
     
     # Asset libraries collection property
     asset_libraries: CollectionProperty(type=QP_AssetLibrary)
-    
+
+    # Custom pie menus collection property
+    custom_pie_menus: CollectionProperty(type=QP_CustomPieMenu)
+
     def draw(self, context):
         layout = self.layout
         
@@ -836,6 +1203,7 @@ class QP_Tools_Preferences(AddonPreferences):
             draw_toggle_button(ux_col, "quick_asset_library_enabled", "Quick Asset Library")
             draw_toggle_button(ux_col, "qp_tools_pie_menu_enabled", "Tool Assets Pie Menu")
             draw_toggle_button(ux_col, "asset_browser_pie_enabled", "Asset Browser Pie Menu")
+            draw_toggle_button(ux_col, "pie_menu_builder_enabled", "Pie Menu Builder")
                         
             # Quick Asset Library settings (properly indented inside the CORE tab condition)
             if self.quick_asset_library_enabled:
@@ -852,6 +1220,11 @@ class QP_Tools_Preferences(AddonPreferences):
         elif self.active_tab == 'ASSETBROWSER':
             from . import asset_browser_pie
             asset_browser_pie.draw_asset_browser_preferences(self, context, box)
+
+        # PIE_BUILDER tab
+        elif self.active_tab == 'PIE_BUILDER':
+            from . import pie_menu_builder
+            pie_menu_builder.draw_pie_builder_preferences(self, context, box)
 
 
 def update_library_path_from_preferences():
@@ -884,7 +1257,7 @@ def reset_module_changes(_):
                         "floating_panel_enabled", "lattice_setup_enabled",
                         "materiallist_enabled", "cleanup_enabled",
                         "qp_tools_pie_menu_enabled", "asset_browser_pie_enabled",
-                        "quick_asset_library_enabled"]:
+                        "quick_asset_library_enabled", "pie_menu_builder_enabled"]:
                 if hasattr(prefs, prop):
                     bpy.context.scene[f"qp_prev_{prop}"] = getattr(prefs, prop)       
 
@@ -907,11 +1280,16 @@ def register():
     bpy.utils.register_class(QP_OT_ShowCoreModulesTab)
     bpy.utils.register_class(QP_OT_toggle_module)
 
-    # Register property groups first
+    # Register property groups first (in dependency order)
     bpy.utils.register_class(QP_AssetItem)
     bpy.utils.register_class(QP_AssetLibrary)
-    
+
     ModuleManager.safe_register_class(QP_LibraryPG)
+
+    # Register pie menu builder property groups (in dependency order)
+    bpy.utils.register_class(QP_ContextRule)
+    bpy.utils.register_class(QP_PieMenuItem)
+    bpy.utils.register_class(QP_CustomPieMenu)
 
     # Register operators
     bpy.utils.register_class(QP_OT_ToggleAsset)
@@ -986,10 +1364,15 @@ def unregister():
     bpy.utils.unregister_class(QP_OT_ToggleAsset)
     bpy.utils.unregister_class(QP_OT_ShowCoreModulesTab)
     
-    # Unregister property groups
+    # Unregister property groups (in reverse dependency order)
+    # Pie menu builder property groups first
+    bpy.utils.unregister_class(QP_CustomPieMenu)
+    bpy.utils.unregister_class(QP_PieMenuItem)
+    bpy.utils.unregister_class(QP_ContextRule)
+
     ModuleManager.safe_unregister_class(QP_LibraryPG)
     bpy.utils.unregister_class(QP_AssetLibrary)
     bpy.utils.unregister_class(QP_AssetItem)
-    
+
     # Unregister preferences last
     bpy.utils.unregister_class(QP_Tools_Preferences)
