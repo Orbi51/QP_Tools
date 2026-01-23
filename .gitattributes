@@ -1,0 +1,8 @@
+# Exclude from git archive (distribution packages)
+.git/ export-ignore
+.gitignore export-ignore
+.gitattributes export-ignore
+.claude/ export-ignore
+__pycache__/ export-ignore
+*.md export-ignore
+tmpclaude-* export-ignore
