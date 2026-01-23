@@ -4,7 +4,7 @@ Blender Python addon developed by Quentin Pointillart.
 
 ## Project Info
 
-- **Version:** 2.1.2
+- **Version:** 2.2.0
 - **Requires:** Blender 4.2.0+
 - **Purpose:** Modular production tools for modeling, texturing, and asset management
 
@@ -22,6 +22,18 @@ Blender Python addon developed by Quentin Pointillart.
 - Use `__package__` instead of hardcoded addon names
 - Test changes in Blender before committing
 - Folder name must match `id` in `blender_manifest.toml`
+
+## Packaging for Distribution
+
+When creating a zip file for distribution, exclude all non-essential files:
+- `.git/` folder
+- `.claude/` folder
+- `__pycache__/` folders
+- `.md` files (README.md, CLAUDE.md, etc.)
+- `.gitignore`, `.gitattributes`
+- Any temporary or development files
+
+Use git archive with export-ignore or manually exclude these files when packaging.
 
 ## File Structure
 
