@@ -25,15 +25,28 @@ Blender Python addon developed by Quentin Pointillart.
 
 ## Packaging for Distribution
 
-When creating a zip file for distribution, exclude all non-essential files:
+### Naming Convention
+Distribution packages should follow this naming format:
+- **Format**: `QP_Tools_V#.#.#.zip` where `#.#.#` is the version number
+- **Example**: `QP_Tools_V2.2.0.zip`
+
+### Creating Distribution Package
+Use `git archive` with the `--prefix` flag to create a properly structured zip:
+
+```bash
+git archive -o QP_Tools_V#.#.#.zip --prefix=QP_Tools/ HEAD
+```
+
+This will automatically exclude all non-essential files defined in `.gitattributes`:
 - `.git/` folder
 - `.claude/` folder
 - `__pycache__/` folders
 - `.md` files (README.md, CLAUDE.md, etc.)
 - `.gitignore`, `.gitattributes`
-- Any temporary or development files
+- `tmpclaude-*` temporary files
+- Any other files marked with `export-ignore`
 
-Use git archive with export-ignore or manually exclude these files when packaging.
+The resulting zip will contain all addon files inside a `QP_Tools/` folder, ready for Blender installation.
 
 ## File Structure
 
