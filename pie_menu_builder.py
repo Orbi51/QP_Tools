@@ -9,6 +9,7 @@ import json
 import rna_keymap_ui
 from bpy.types import Menu, Operator
 from bpy.props import StringProperty, BoolProperty, IntProperty, EnumProperty
+from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from .module_helper import ModuleManager
 
@@ -792,7 +793,7 @@ def draw_pie_item(pie, item, context):
 
     if item.action_type == 'SMART_ACTION':
         if not item.smart_action_id or item.smart_action_id not in SMART_ACTIONS:
-            pie.label(text=item.name, icon='ERROR')
+            pie.separator()
             return
 
         action_data = SMART_ACTIONS[item.smart_action_id]
@@ -805,8 +806,8 @@ def draw_pie_item(pie, item, context):
             enabled = set(action_data['contexts'].keys())
 
         if context_key not in enabled or context_key not in action_data['contexts']:
-            # Action not available - show as disabled
-            pie.label(text=f"{item.name} (N/A)", icon='BLANK1')
+            # Action not available in this context - hide the slot
+            pie.separator()
             return
 
         # Use action's default icon if item doesn't have one
@@ -818,11 +819,11 @@ def draw_pie_item(pie, item, context):
             op.action_id = item.smart_action_id
             op.enabled_contexts = item.smart_action_contexts
         except Exception as e:
-            pie.label(text=f"{item.name} (Error)", icon='ERROR')
+            pie.separator()
 
     elif item.action_type == 'OPERATOR':
         if not item.operator_idname:
-            pie.label(text=item.name, icon='ERROR')
+            pie.separator()
             return
 
         try:
@@ -837,11 +838,11 @@ def draw_pie_item(pie, item, context):
                 except json.JSONDecodeError:
                     pass
         except Exception as e:
-            pie.label(text=f"{item.name} (Error)", icon='ERROR')
+            pie.separator()
 
     elif item.action_type == 'SHORTCUT':
         if not item.shortcut_key or item.shortcut_key == 'NONE':
-            pie.label(text=item.name, icon='ERROR')
+            pie.separator()
             return
 
         try:
@@ -851,11 +852,11 @@ def draw_pie_item(pie, item, context):
             op.alt = item.shortcut_alt
             op.shift = item.shortcut_shift
         except Exception as e:
-            pie.label(text=f"{item.name} (Error)", icon='ERROR')
+            pie.separator()
 
     elif item.action_type == 'PROPERTY_TOGGLE':
         if not item.property_data_path:
-            pie.label(text=item.name, icon='ERROR')
+            pie.separator()
             return
 
         try:
@@ -863,13 +864,13 @@ def draw_pie_item(pie, item, context):
             if data_obj:
                 pie.prop(data_obj, item.property_data_path, text=item.name, icon=icon, toggle=True)
             else:
-                pie.label(text=item.name, icon='ERROR')
+                pie.separator()
         except Exception as e:
-            pie.label(text=f"{item.name} (Error)", icon='ERROR')
+            pie.separator()
 
     elif item.action_type == 'PROPERTY_ENUM':
         if not item.property_data_path:
-            pie.label(text=item.name, icon='ERROR')
+            pie.separator()
             return
 
         try:
@@ -877,7 +878,7 @@ def draw_pie_item(pie, item, context):
             op.data_path = item.property_data_path
             op.context_type = item.property_context
         except Exception as e:
-            pie.label(text=f"{item.name} (Error)", icon='ERROR')
+            pie.separator()
 
 
 def create_dynamic_pie_menu_class(pie_menu_id):
@@ -909,6 +910,10 @@ def create_dynamic_pie_menu_class(pie_menu_id):
             if not pie_menu:
                 pie.label(text="Menu not found")
                 return
+
+            # Keep label in sync with the user-facing name
+            if self.bl_label != pie_menu.name:
+                self.__class__.bl_label = pie_menu.name
 
             # Build position map (8 positions in standard pie)
             position_items = {i: None for i in range(8)}
@@ -2197,7 +2202,87 @@ def draw_context_rules_ui(layout, pie_menu, item):
         op.rule_index = i
 
 
-def draw_pie_item_editor(layout, pie_menu, item, index):
+class QP_OT_SetPieItemPosition(Operator):
+    """Set the pie menu position for this item"""
+    bl_idname = "qp.set_pie_item_position"
+    bl_label = "Set Pie Position"
+    bl_options = {'REGISTER', 'UNDO'}
+    bl_property = "position"
+
+    menu_id: StringProperty(name="Menu ID")
+    item_id: StringProperty(name="Item ID")
+    position: EnumProperty(
+        name="Position",
+        items=[
+            ('-1', "Auto", "Automatically assign position"),
+            ('0', "West", "Left"),
+            ('1', "East", "Right"),
+            ('2', "South", "Bottom"),
+            ('3', "North", "Top"),
+            ('4', "NW", "Top-Left"),
+            ('5', "NE", "Top-Right"),
+            ('6', "SW", "Bottom-Left"),
+            ('7', "SE", "Bottom-Right"),
+        ],
+        default='-1',
+    )
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__package__].preferences
+        for pie_menu in prefs.custom_pie_menus:
+            if pie_menu.id == self.menu_id:
+                for item in pie_menu.items:
+                    if item.id == self.item_id:
+                        item.pie_position = int(self.position)
+                        return {'FINISHED'}
+        self.report({'WARNING'}, "Item not found")
+        return {'CANCELLED'}
+
+    def invoke(self, context, event):
+        context.window_manager.invoke_search_popup(self)
+        return {'CANCELLED'}
+
+
+_PIE_POSITION_ICONS = {
+    0: 'TRIA_LEFT',      # W
+    1: 'TRIA_RIGHT',     # E
+    2: 'TRIA_DOWN',      # S
+    3: 'TRIA_UP',        # N
+    4: 'TRIA_LEFT',      # NW
+    5: 'TRIA_RIGHT',     # NE
+    6: 'TRIA_LEFT',      # SW
+    7: 'TRIA_RIGHT',     # SE
+}
+
+_PIE_POSITION_NAMES = {
+    -1: "Auto", 0: "W", 1: "E", 2: "S", 3: "N",
+    4: "NW", 5: "NE", 6: "SW", 7: "SE",
+}
+
+
+def _compute_item_positions(pie_menu):
+    """Return a dict mapping item.id -> effective pie position index."""
+    position_items = {i: None for i in range(8)}
+    unpositioned = []
+
+    for item in pie_menu.items:
+        if 0 <= item.pie_position <= 7:
+            if position_items[item.pie_position] is None:
+                position_items[item.pie_position] = item.id
+            else:
+                unpositioned.append(item.id)
+        else:
+            unpositioned.append(item.id)
+
+    for i in range(8):
+        if position_items[i] is None and unpositioned:
+            position_items[i] = unpositioned.pop(0)
+
+    # Invert: id -> position
+    return {item_id: pos for pos, item_id in position_items.items() if item_id is not None}
+
+
+def draw_pie_item_editor(layout, pie_menu, item, index, effective_position=None):
     """Draw the editor for a single pie menu item"""
 
     item_box = layout.box()
@@ -2212,6 +2297,16 @@ def draw_pie_item_editor(layout, pie_menu, item, index):
     op.item_id = item.id
 
     header.prop(item, "enabled", text="")
+
+    # Position button — shows current direction, click to change
+    if effective_position is not None:
+        pos_name = _PIE_POSITION_NAMES.get(item.pie_position, "Auto")
+        sub = header.row(align=True)
+        sub.scale_x = 0.5
+        op = sub.operator("qp.set_pie_item_position", text=pos_name)
+        op.menu_id = pie_menu.id
+        op.item_id = item.id
+
     header.prop(item, "name", text="")
 
     # Icon picker button (visual popup)
@@ -2353,6 +2448,10 @@ def draw_pie_menu_editor(layout, pie_menu, context):
     header.prop(pie_menu, "name", text="")
 
     # Actions
+    exp_op = header.operator("qp.export_pie_menus", text="", icon='EXPORT')
+    exp_op.export_mode = 'SELECTED'
+    exp_op.menu_id = pie_menu.id
+
     op = header.operator("qp.duplicate_custom_pie_menu", text="", icon='DUPLICATE')
     op.menu_id = pie_menu.id
 
@@ -2456,8 +2555,10 @@ def draw_pie_menu_editor(layout, pie_menu, context):
     if not pie_menu.items:
         items_box.label(text="No items. Click + to add one.")
     else:
+        # Compute effective pie positions for all items
+        item_positions = _compute_item_positions(pie_menu)
         for i, item in enumerate(pie_menu.items):
-            draw_pie_item_editor(items_box, pie_menu, item, i)
+            draw_pie_item_editor(items_box, pie_menu, item, i, item_positions.get(item.id))
 
     # Preview button
     if pie_menu.items:
@@ -2479,10 +2580,13 @@ def draw_pie_builder_preferences(preferences, context, layout):
         layout.operator("qp.show_core_modules_tab", text="Go to Core Modules Tab")
         return
 
-    # Header with Add button
+    # Header with Add / Import / Export buttons
     header = layout.row()
     header.label(text="Custom Pie Menus", icon='MENU_PANEL')
     header.operator("qp.add_custom_pie_menu", text="Add New", icon='ADD')
+    header.operator("qp.import_pie_menus", text="Import", icon='IMPORT')
+    op = header.operator("qp.export_pie_menus", text="Export", icon='EXPORT')
+    op.export_mode = 'ALL'
 
     # List of pie menus
     if not preferences.custom_pie_menus:
@@ -2492,6 +2596,200 @@ def draw_pie_builder_preferences(preferences, context, layout):
 
     for pie_menu in preferences.custom_pie_menus:
         draw_pie_menu_editor(layout, pie_menu, context)
+
+
+# =============================================================================
+# Import / Export
+# =============================================================================
+
+def _serialize_pie_menu(pie_menu):
+    """Serialize a single QP_CustomPieMenu to a dict."""
+    items = []
+    for item in pie_menu.items:
+        rules = []
+        for rule in item.context_rules:
+            rules.append({
+                'enabled': rule.enabled,
+                'rule_type': rule.rule_type,
+                'mode_filter': rule.mode_filter,
+                'object_type_filter': rule.object_type_filter,
+                'space_type_filter': rule.space_type_filter,
+                'invert': rule.invert,
+            })
+        items.append({
+            'name': item.name,
+            'icon': item.icon,
+            'enabled': item.enabled,
+            'action_type': item.action_type,
+            'pie_position': item.pie_position,
+            'smart_action_id': item.smart_action_id,
+            'smart_action_contexts': item.smart_action_contexts,
+            'operator_idname': item.operator_idname,
+            'operator_props': item.operator_props,
+            'shortcut_key': item.shortcut_key,
+            'shortcut_ctrl': item.shortcut_ctrl,
+            'shortcut_alt': item.shortcut_alt,
+            'shortcut_shift': item.shortcut_shift,
+            'smart_toggle_id': item.smart_toggle_id,
+            'property_data_path': item.property_data_path,
+            'property_context': item.property_context,
+            'context_match_mode': item.context_match_mode,
+            'context_rules': rules,
+        })
+    return {
+        'name': pie_menu.name,
+        'icon': pie_menu.icon,
+        'enabled': pie_menu.enabled,
+        'keymap': {
+            'key': pie_menu.keymap_key,
+            'ctrl': pie_menu.keymap_ctrl,
+            'alt': pie_menu.keymap_alt,
+            'shift': pie_menu.keymap_shift,
+            'oskey': pie_menu.keymap_oskey,
+            'space': pie_menu.keymap_space,
+        },
+        'items': items,
+    }
+
+
+def _deserialize_pie_menu(data, target_menu):
+    """Populate a QP_CustomPieMenu from a dict."""
+    target_menu.id = str(uuid.uuid4())[:8]
+    target_menu.name = data.get('name', 'Imported Menu')
+    target_menu.icon = data.get('icon', 'NONE')
+    target_menu.enabled = data.get('enabled', True)
+
+    km = data.get('keymap', {})
+    target_menu.keymap_key = km.get('key', 'NONE')
+    target_menu.keymap_ctrl = km.get('ctrl', False)
+    target_menu.keymap_alt = km.get('alt', False)
+    target_menu.keymap_shift = km.get('shift', False)
+    target_menu.keymap_oskey = km.get('oskey', False)
+    target_menu.keymap_space = km.get('space', 'VIEW_3D')
+
+    for item_data in data.get('items', []):
+        new_item = target_menu.items.add()
+        new_item.id = str(uuid.uuid4())[:8]
+        new_item.name = item_data.get('name', 'Item')
+        new_item.icon = item_data.get('icon', 'NONE')
+        new_item.enabled = item_data.get('enabled', True)
+        new_item.action_type = item_data.get('action_type', 'SMART_ACTION')
+        new_item.pie_position = item_data.get('pie_position', -1)
+        new_item.smart_action_id = item_data.get('smart_action_id', '')
+        new_item.smart_action_contexts = item_data.get('smart_action_contexts', '')
+        new_item.operator_idname = item_data.get('operator_idname', '')
+        new_item.operator_props = item_data.get('operator_props', '{}')
+        new_item.shortcut_key = item_data.get('shortcut_key', 'NONE')
+        new_item.shortcut_ctrl = item_data.get('shortcut_ctrl', False)
+        new_item.shortcut_alt = item_data.get('shortcut_alt', False)
+        new_item.shortcut_shift = item_data.get('shortcut_shift', False)
+        new_item.smart_toggle_id = item_data.get('smart_toggle_id', '')
+        new_item.property_data_path = item_data.get('property_data_path', '')
+        new_item.property_context = item_data.get('property_context', 'TOOL_SETTINGS')
+        new_item.context_match_mode = item_data.get('context_match_mode', 'ANY')
+
+        for rule_data in item_data.get('context_rules', []):
+            new_rule = new_item.context_rules.add()
+            new_rule.enabled = rule_data.get('enabled', True)
+            new_rule.rule_type = rule_data.get('rule_type', 'MODE')
+            new_rule.mode_filter = rule_data.get('mode_filter', 'OBJECT')
+            new_rule.object_type_filter = rule_data.get('object_type_filter', 'MESH')
+            new_rule.space_type_filter = rule_data.get('space_type_filter', 'VIEW_3D')
+            new_rule.invert = rule_data.get('invert', False)
+
+
+class QP_OT_ExportPieMenus(Operator, ExportHelper):
+    """Export pie menus to a JSON file"""
+    bl_idname = "qp.export_pie_menus"
+    bl_label = "Export Pie Menus"
+
+    filename_ext = ".json"
+    filter_glob: StringProperty(default="*.json", options={'HIDDEN'})
+
+    export_mode: EnumProperty(
+        name="Export",
+        items=[
+            ('ALL', "All Menus", "Export all custom pie menus"),
+            ('SELECTED', "Selected Menu", "Export only the currently selected menu"),
+        ],
+        default='ALL',
+    )
+
+    menu_id: StringProperty(name="Menu ID", options={'HIDDEN'})
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__package__].preferences
+        menus = []
+
+        if self.export_mode == 'SELECTED' and self.menu_id:
+            for pie_menu in prefs.custom_pie_menus:
+                if pie_menu.id == self.menu_id:
+                    menus.append(_serialize_pie_menu(pie_menu))
+                    break
+            if not menus:
+                self.report({'WARNING'}, "Selected pie menu not found")
+                return {'CANCELLED'}
+        else:
+            for pie_menu in prefs.custom_pie_menus:
+                menus.append(_serialize_pie_menu(pie_menu))
+
+        if not menus:
+            self.report({'WARNING'}, "No pie menus to export")
+            return {'CANCELLED'}
+
+        payload = {
+            'version': '1.0',
+            'addon_version': '2.2.0',
+            'pie_menus': menus,
+        }
+
+        try:
+            with open(self.filepath, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to write file: {e}")
+            return {'CANCELLED'}
+
+        count = len(menus)
+        self.report({'INFO'}, f"Exported {count} pie menu{'s' if count != 1 else ''}")
+        return {'FINISHED'}
+
+
+class QP_OT_ImportPieMenus(Operator, ImportHelper):
+    """Import pie menus from a JSON file"""
+    bl_idname = "qp.import_pie_menus"
+    bl_label = "Import Pie Menus"
+
+    filename_ext = ".json"
+    filter_glob: StringProperty(default="*.json", options={'HIDDEN'})
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__package__].preferences
+
+        try:
+            with open(self.filepath, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to read file: {e}")
+            return {'CANCELLED'}
+
+        if not isinstance(payload, dict) or 'pie_menus' not in payload:
+            self.report({'ERROR'}, "Invalid pie menu file format")
+            return {'CANCELLED'}
+
+        imported = 0
+        for menu_data in payload['pie_menus']:
+            new_menu = prefs.custom_pie_menus.add()
+            _deserialize_pie_menu(menu_data, new_menu)
+            register_dynamic_menu(new_menu)
+            PieMenuKeymapManager.refresh_pie_menu_keymap(new_menu)
+            imported += 1
+
+        if imported:
+            bpy.ops.wm.save_userpref()
+
+        self.report({'INFO'}, f"Imported {imported} pie menu{'s' if imported != 1 else ''}")
+        return {'FINISHED'}
 
 
 # =============================================================================
@@ -2520,6 +2818,9 @@ classes = [
     QP_OT_ExecuteSmartAction,
     QP_OT_CaptureShortcut,
     QP_OT_SimulateShortcut,
+    QP_OT_SetPieItemPosition,
+    QP_OT_ExportPieMenus,
+    QP_OT_ImportPieMenus,
 ]
 
 
