@@ -4,7 +4,7 @@ Blender Python addon developed by Quentin Pointillart.
 
 ## Project Info
 
-- **Version:** 2.2.0
+- **Version:** 2.2.1
 - **Requires:** Blender 4.2.0+
 - **Purpose:** Modular production tools for modeling, texturing, and asset management
 
@@ -34,7 +34,7 @@ Distribution packages should follow this naming format:
 Use `git archive` with the `--prefix` flag to create a properly structured zip:
 
 ```bash
-git archive -o QP_Tools_V#.#.#.zip --prefix=QP_Tools/ HEAD
+git archive -o ../QP_Tools_V#.#.#.zip --prefix=QP_Tools/ HEAD
 ```
 
 This will automatically exclude all non-essential files defined in `.gitattributes`:

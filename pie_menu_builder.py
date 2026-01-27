@@ -297,6 +297,22 @@ SMART_ACTIONS = {
             'OBJECT': {'operator': 'object.origin_set', 'label': "Object Mode", 'props': {'type': 'ORIGIN_CURSOR'}},
         }
     },
+    'SET_PARENT': {
+        'name': "Set Parent",
+        'description': "Set parent relationship",
+        'icon': 'LINKED',
+        'contexts': {
+            'OBJECT': {'operator': 'object.parent_set', 'label': "Object Mode"},
+        }
+    },
+    'CLEAR_PARENT': {
+        'name': "Clear Parent",
+        'description': "Clear parent relationship",
+        'icon': 'UNLINKED',
+        'contexts': {
+            'OBJECT': {'operator': 'object.parent_clear', 'label': "Object Mode"},
+        }
+    },
     'SHADE_SMOOTH': {
         'name': "Shade Smooth",
         'description': "Set smooth shading",
@@ -2549,7 +2565,9 @@ def draw_pie_menu_editor(layout, pie_menu, context):
     items_header = items_box.row()
     items_header.label(text="Menu Items", icon='PRESET')
 
-    op = items_header.operator("qp.add_pie_menu_item", text="", icon='ADD')
+    add_row = items_header.row()
+    add_row.enabled = len(pie_menu.items) < 8
+    op = add_row.operator("qp.add_pie_menu_item", text="", icon='ADD')
     op.menu_id = pie_menu.id
 
     if not pie_menu.items:
