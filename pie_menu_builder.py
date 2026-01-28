@@ -715,21 +715,62 @@ class PieMenuKeymapManager:
             cls.register_pie_menu_keymap(pie_menu)
 
     @classmethod
-    def refresh_all_keymaps(cls):
-        """Refresh all pie menu keymaps"""
-        # Unregister all existing
-        for menu_id in list(cls._registered_keymaps.keys()):
-            cls.unregister_pie_menu_keymap(menu_id)
+    def ensure_addon_keymaps(cls):
+        """Create addon keyconfig entries for all pie menus.
 
-        # Re-register from preferences
+        This creates keymap items with key='NONE' in kc_addon so that
+        Blender's keymap system can overlay the user-configured shortcuts
+        from kc_user.  Without these entries, shortcuts only appear after
+        the preferences UI is drawn (which is where they were previously
+        created on-demand).
+        """
         try:
             prefs = bpy.context.preferences.addons[__package__].preferences
-            if hasattr(prefs, 'custom_pie_menus'):
-                for pie_menu in prefs.custom_pie_menus:
-                    if pie_menu.enabled and pie_menu.keymap_key != 'NONE':
-                        cls.register_pie_menu_keymap(pie_menu)
-        except Exception as e:
-            print(f"QP_Tools: Error refreshing keymaps: {e}")
+            if not hasattr(prefs, 'custom_pie_menus'):
+                return
+        except Exception:
+            return
+
+        wm = bpy.context.window_manager
+        kc = wm.keyconfigs.addon
+        if not kc:
+            return
+
+        for pie_menu in prefs.custom_pie_menus:
+            if not pie_menu.id or not pie_menu.enabled:
+                continue
+            if pie_menu.id in cls._registered_keymaps:
+                continue
+
+            km_name = cls.get_keymap_name(pie_menu.keymap_space)
+            space_type = pie_menu.keymap_space if pie_menu.keymap_space != 'EMPTY' else 'EMPTY'
+            km = kc.keymaps.get(km_name)
+            if not km:
+                try:
+                    km = kc.keymaps.new(name=km_name, space_type=space_type)
+                except Exception:
+                    continue
+
+            # Check if already exists in addon keyconfig
+            already_exists = False
+            for kmi in km.keymap_items:
+                if (kmi.idname == "qp.call_custom_pie_menu" and
+                    hasattr(kmi.properties, 'menu_id') and
+                    kmi.properties.menu_id == pie_menu.id):
+                    already_exists = True
+                    cls._registered_keymaps[pie_menu.id] = (km, kmi)
+                    break
+
+            if not already_exists:
+                try:
+                    kmi = km.keymap_items.new(
+                        "qp.call_custom_pie_menu",
+                        'NONE', 'PRESS',
+                    )
+                    kmi.properties.menu_id = pie_menu.id
+                    cls._registered_keymaps[pie_menu.id] = (km, kmi)
+                except Exception:
+                    pass
 
     @classmethod
     def unregister_all(cls):
@@ -2842,6 +2883,13 @@ classes = [
 ]
 
 
+@bpy.app.handlers.persistent
+def _on_load_post(_):
+    """Re-register pie menu keymaps after a file is loaded (including startup file)."""
+    refresh_all_dynamic_menus()
+    PieMenuKeymapManager.ensure_addon_keymaps()
+
+
 def register():
     global _is_registered
 
@@ -2854,14 +2902,19 @@ def register():
 
     _is_registered = True
 
-    # Register dynamic menus and keymaps after a short delay
-    # to ensure preferences are available
+    # After a short delay, create addon keymap entries for all pie menus
+    # so Blender can apply saved user shortcuts from kc_user.
     def delayed_init():
         refresh_all_dynamic_menus()
-        PieMenuKeymapManager.refresh_all_keymaps()
+        PieMenuKeymapManager.ensure_addon_keymaps()
         return None
 
     bpy.app.timers.register(delayed_init, first_interval=0.5)
+
+    # Also register a load_post handler so keymaps are restored
+    # after every file load (including the initial startup file)
+    if _on_load_post not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_on_load_post)
 
 
 def unregister():
@@ -2869,6 +2922,10 @@ def unregister():
 
     if not ModuleManager.unregister_module(sys.modules[__name__]):
         return
+
+    # Remove load_post handler
+    if _on_load_post in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_on_load_post)
 
     # Unregister keymaps
     PieMenuKeymapManager.unregister_all()
