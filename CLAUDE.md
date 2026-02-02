@@ -63,3 +63,36 @@ QP_Tools/
 ├── installer.py             # Product installation
 └── ...
 ```
+
+## Workflow Orchestration
+
+### 1. Plan Mode Default
+- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
+- Write detailed specs upfront to reduce ambiguity
+
+### 2. Subagent Strategy
+- Use subagents to keep main context window clean
+- Offload research, exploration, and parallel analysis to subagents
+- One task per subagent for focused execution
+
+### 3. Self-Improvement Loop
+- At the start of every session, read `tasks/lessons.md` before doing any work
+- After ANY correction from the user: update `tasks/lessons.md` with the pattern
+- Write rules for yourself that prevent the same mistake
+- Format each lesson as: **mistake** → **rule** → **example**
+
+### 4. Verification Before Done
+- Never mark a task complete without running tests or demonstrating correctness
+- Run `git diff` to review your own changes before presenting them
+
+### 5. Keep It Simple
+- Do exactly what was asked — no extra features, no speculative abstractions
+- Three similar lines of code is better than a premature helper function
+- Don't add error handling for scenarios that can't happen
+- If a solution feels complex, step back and find the simpler path
+- No comments, docstrings, or type annotations on code you didn't change
+
+### Core Principles
+- **Simplicity First**: Make every change as simple as possible. Impact minimal code.
+- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
+- **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
