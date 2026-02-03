@@ -134,32 +134,8 @@ class QP_AssetLibrary(PropertyGroup):
 
 def update_module_state(self, context):
     """Update module state when preferences change"""
-    # Mark that settings have changed
     self.module_settings_changed = True
-    
-    # Only try to store values if we have a valid scene
-    if hasattr(context, 'scene') and context.scene is not None:
-        caller_property = None
-        
-        # Walk up the stack to find the property that triggered this update
-        import inspect
-        frame = inspect.currentframe()
-        while frame:
-            if 'self' in frame.f_locals and hasattr(frame.f_locals['self'], 'bl_idname'):
-                # Get the property name that was changed
-                for key, value in frame.f_locals.items():
-                    if key != 'self' and key != 'context' and hasattr(self, key):
-                        caller_property = key
-                        break
-                break
-            frame = frame.f_back
-        
-        # If we found the property, update its stored value
-        if caller_property and hasattr(self, caller_property):
-            prev_value_key = f"qp_prev_{caller_property}"
-            context.scene[prev_value_key] = getattr(self, caller_property)
-    
-    # Force a UI redraw to show restart message
+
     for window in context.window_manager.windows:
         for area in window.screen.areas:
             area.tag_redraw()
@@ -1251,21 +1227,7 @@ def reset_module_changes(_):
     """Reset the module_settings_changed flag on file load"""
     if __package__ in bpy.context.preferences.addons:
         prefs = bpy.context.preferences.addons[__package__].preferences
-        # Reset the change flag
-        prefs.module_settings_changed = False
-        
-        # Only try to store values if we have a valid scene
-        if hasattr(bpy.context, 'scene') and bpy.context.scene is not None:
-            # Store current values of all module properties
-            for prop in ["link_node_groups_enabled", "texture_set_builder_enabled",
-                        "project_box_flat_enabled", "edge_select_enabled",
-                        "collection_offset_enabled", "bevel_weight_enabled",
-                        "floating_panel_enabled", "lattice_setup_enabled",
-                        "materiallist_enabled", "cleanup_enabled",
-                        "qp_tools_pie_menu_enabled", "asset_browser_pie_enabled",
-                        "quick_asset_library_enabled", "pie_menu_builder_enabled"]:
-                if hasattr(prefs, prop):
-                    bpy.context.scene[f"qp_prev_{prop}"] = getattr(prefs, prop)       
+        prefs.module_settings_changed = False       
 
 
 # Initial sync of asset libraries
