@@ -24,7 +24,7 @@ def _read_addon_version() -> str:
 
 
 CURRENT_ADDON_VERSION = _read_addon_version()
-MANIFEST_URL = "https://raw.githubusercontent.com/Orbi51/QP_Tools/main/update_info.json"
+MANIFEST_URL = "https://raw.githubusercontent.com/Orbi51/QP_Tools/master/update_info.json"
 
 # --------------- Persistent State File ---------------
 
