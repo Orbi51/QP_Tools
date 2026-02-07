@@ -6,3 +6,4 @@
 __pycache__/ export-ignore
 *.md export-ignore
 tmpclaude-* export-ignore
+update_info.json export-ignore

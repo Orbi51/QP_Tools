@@ -1091,6 +1091,12 @@ class QP_Tools_Preferences(AddonPreferences):
         update=quick_asset_path_update
     )
 
+    auto_check_updates: BoolProperty(
+        name="Auto Check Updates",
+        description="Automatically check for updates on startup",
+        default=True
+    )
+
     # Add columns property for asset display
     assets_columns: IntProperty(
         name="Asset Columns",
@@ -1108,7 +1114,10 @@ class QP_Tools_Preferences(AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
-        
+
+        from . import updater
+        updater.draw_updates_section(self, layout, context)
+
         # Add restart message only if changes were made in this session
         if self.module_settings_changed:
             box = layout.box()

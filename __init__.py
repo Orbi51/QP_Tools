@@ -4,7 +4,7 @@ bl_info = {
     "author": "Quentin Pointillart",
     "description": "Set of tools to speed up time consuming tasks",
     "blender": (4, 2, 0),
-    "version": (2, 0, 3),
+    "version": (2, 2, 2),
     "location": "Right-click menu", 
     "category": "Node, Mesh" 
 }
@@ -23,6 +23,7 @@ from . import qp_tools_panel
 from . import ui
 from . import asset_cache
 from . import qp_image_updater
+from . import updater
 
 # Main modules
 modules = [
@@ -158,6 +159,7 @@ def register():
     qp_tools_panel.register()
     ui.register()
     qp_image_updater.register()
+    updater.register()
 
     # Register the new handler after all other initializations
     if load_libraries_and_save_prefs not in bpy.app.handlers.load_post:
@@ -174,6 +176,7 @@ def unregister():
     shortcuts.unregister_keymaps()
     
     # Unregister in EXACT reverse order of register()
+    updater.unregister()
     ui.unregister()
     qp_image_updater.unregister()
     qp_tools_panel.unregister()

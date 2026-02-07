@@ -188,6 +188,8 @@ class QP_PT_main_panel(Panel):
     
     def draw(self, context):
         layout = self.layout
+        from . import updater
+        updater.draw_sidebar_update_notice(layout)
         layout.label(text="Activated Modules")
 
 # Materials sub-panel
