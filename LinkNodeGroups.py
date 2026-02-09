@@ -159,7 +159,7 @@ class NodeGroupLinker(Operator):
         is_bsdf_node = active_node.bl_idname.lower().startswith("shadernodebsdf")
 
         # Skip Alpha to BSDF shader connections
-        if output_name == "Alpha" and is_bsdf_node:
+        if "alpha" in output_name.lower() and is_bsdf_node:
             print(f"Skipping Alpha to BSDF shader connection for {active_node.name}")
             return False
 
