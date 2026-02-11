@@ -335,6 +335,241 @@ SMART_ACTIONS = {
 
 
 # =============================================================================
+# Toolbar Tools - Predefined toolbar tool activations
+# =============================================================================
+
+_COMMON_CONTEXTS = ['OBJECT', 'EDIT_MESH', 'EDIT_CURVE', 'EDIT_SURFACE',
+                     'EDIT_ARMATURE', 'EDIT_METABALL', 'EDIT_LATTICE',
+                     'SCULPT', 'PAINT_WEIGHT', 'PAINT_VERTEX', 'PAINT_TEXTURE',
+                     'POSE']
+_OBJECT_EDIT = ['OBJECT', 'EDIT_MESH', 'EDIT_CURVE', 'EDIT_SURFACE',
+                'EDIT_ARMATURE', 'EDIT_METABALL', 'EDIT_LATTICE', 'POSE']
+_EDIT_MESH_ONLY = ['EDIT_MESH']
+_SCULPT_ONLY = ['SCULPT']
+_OBJECT_ONLY = ['OBJECT']
+
+TOOLBAR_TOOLS = {
+    # --- Selection ---
+    'CURSOR': {
+        'name': "Cursor",
+        'description': "3D Cursor tool",
+        'icon': 'PIVOT_CURSOR',
+        'idname': "builtin.cursor",
+        'contexts': _COMMON_CONTEXTS,
+    },
+    'SELECT_BOX': {
+        'name': "Select Box",
+        'description': "Box selection tool",
+        'icon': 'SELECT_SET',
+        'idname': "builtin.select_box",
+        'contexts': _COMMON_CONTEXTS,
+    },
+    'SELECT_CIRCLE': {
+        'name': "Select Circle",
+        'description': "Circle selection tool",
+        'icon': 'MESH_CIRCLE',
+        'idname': "builtin.select_circle",
+        'contexts': _COMMON_CONTEXTS,
+    },
+    'SELECT_LASSO': {
+        'name': "Select Lasso",
+        'description': "Lasso selection tool",
+        'icon': 'GP_SELECT_BETWEEN_STROKES',
+        'idname': "builtin.select_lasso",
+        'contexts': _COMMON_CONTEXTS,
+    },
+    # --- Transform ---
+    'MOVE': {
+        'name': "Move",
+        'description': "Move tool",
+        'icon': 'OBJECT_ORIGIN',
+        'idname': "builtin.move",
+        'contexts': _OBJECT_EDIT,
+    },
+    'ROTATE': {
+        'name': "Rotate",
+        'description': "Rotate tool",
+        'icon': 'DRIVER_ROTATIONAL_DIFFERENCE',
+        'idname': "builtin.rotate",
+        'contexts': _OBJECT_EDIT,
+    },
+    'SCALE': {
+        'name': "Scale",
+        'description': "Scale tool",
+        'icon': 'FULLSCREEN_EXIT',
+        'idname': "builtin.scale",
+        'contexts': _OBJECT_EDIT,
+    },
+    'TRANSFORM': {
+        'name': "Transform",
+        'description': "Combined transform tool (Move, Rotate, Scale)",
+        'icon': 'ORIENTATION_GIMBAL',
+        'idname': "builtin.transform",
+        'contexts': _OBJECT_EDIT,
+    },
+    # --- Annotate ---
+    'ANNOTATE': {
+        'name': "Annotate",
+        'description': "Annotate tool",
+        'icon': 'GREASEPENCIL',
+        'idname': "builtin.annotate",
+        'contexts': _COMMON_CONTEXTS,
+    },
+    'ANNOTATE_LINE': {
+        'name': "Annotate Line",
+        'description': "Annotate line tool",
+        'icon': 'GREASEPENCIL',
+        'idname': "builtin.annotate_line",
+        'contexts': _COMMON_CONTEXTS,
+    },
+    'ANNOTATE_ERASER': {
+        'name': "Annotate Eraser",
+        'description': "Annotate eraser tool",
+        'icon': 'PANEL_CLOSE',
+        'idname': "builtin.annotate_eraser",
+        'contexts': _COMMON_CONTEXTS,
+    },
+    # --- Measure ---
+    'MEASURE': {
+        'name': "Measure",
+        'description': "Measure tool",
+        'icon': 'DRIVER_DISTANCE',
+        'idname': "builtin.measure",
+        'contexts': _OBJECT_EDIT,
+    },
+    # --- Add Primitives (Object Mode) ---
+    'ADD_CUBE': {
+        'name': "Add Cube",
+        'description': "Interactively add a cube",
+        'icon': 'MESH_CUBE',
+        'idname': "builtin.primitive_cube_add",
+        'contexts': _OBJECT_ONLY,
+    },
+    'ADD_CONE': {
+        'name': "Add Cone",
+        'description': "Interactively add a cone",
+        'icon': 'MESH_CONE',
+        'idname': "builtin.primitive_cone_add",
+        'contexts': _OBJECT_ONLY,
+    },
+    'ADD_CYLINDER': {
+        'name': "Add Cylinder",
+        'description': "Interactively add a cylinder",
+        'icon': 'MESH_CYLINDER',
+        'idname': "builtin.primitive_cylinder_add",
+        'contexts': _OBJECT_ONLY,
+    },
+    'ADD_UVSPHERE': {
+        'name': "Add UV Sphere",
+        'description': "Interactively add a UV sphere",
+        'icon': 'MESH_UVSPHERE',
+        'idname': "builtin.primitive_uv_sphere_add",
+        'contexts': _OBJECT_ONLY,
+    },
+    'ADD_ICOSPHERE': {
+        'name': "Add Ico Sphere",
+        'description': "Interactively add an ico sphere",
+        'icon': 'MESH_ICOSPHERE',
+        'idname': "builtin.primitive_ico_sphere_add",
+        'contexts': _OBJECT_ONLY,
+    },
+    # --- Edit Mode Tools (unique to toolbar, no Smart Action equivalent) ---
+    'POLY_BUILD_TOOL': {
+        'name': "Poly Build",
+        'description': "Poly build tool",
+        'icon': 'MOD_BUILD',
+        'idname': "builtin.poly_build",
+        'contexts': _EDIT_MESH_ONLY,
+    },
+    'SPIN_TOOL': {
+        'name': "Spin",
+        'description': "Spin tool",
+        'icon': 'FORCE_MAGNETIC',
+        'idname': "builtin.spin",
+        'contexts': _EDIT_MESH_ONLY,
+    },
+    'EDGE_SLIDE_TOOL': {
+        'name': "Edge Slide",
+        'description': "Edge slide tool",
+        'icon': 'MOD_EDGESPLIT',
+        'idname': "builtin.edge_slide",
+        'contexts': _EDIT_MESH_ONLY,
+    },
+    'VERTEX_SLIDE_TOOL': {
+        'name': "Vertex Slide",
+        'description': "Vertex slide tool",
+        'icon': 'VERTEXSEL',
+        'idname': "builtin.vert_slide",
+        'contexts': _EDIT_MESH_ONLY,
+    },
+    'SHRINK_FATTEN_TOOL': {
+        'name': "Shrink/Fatten",
+        'description': "Shrink/Fatten tool",
+        'icon': 'FULLSCREEN_EXIT',
+        'idname': "builtin.shrink_fatten",
+        'contexts': _EDIT_MESH_ONLY,
+    },
+    'SHEAR_TOOL': {
+        'name': "Shear",
+        'description': "Shear tool",
+        'icon': 'MOD_TRIANGULATE',
+        'idname': "builtin.shear",
+        'contexts': _EDIT_MESH_ONLY,
+    },
+    'RIP_REGION_TOOL': {
+        'name': "Rip Region",
+        'description': "Rip region tool",
+        'icon': 'UNLINKED',
+        'idname': "builtin.rip_region",
+        'contexts': _EDIT_MESH_ONLY,
+    },
+    # --- Sculpt Mode ---
+    'SCULPT_DRAW': {
+        'name': "Draw (Sculpt)",
+        'description': "Sculpt draw brush",
+        'icon': 'SCULPTMODE_HLT',
+        'idname': "builtin_brush.Draw",
+        'contexts': _SCULPT_ONLY,
+    },
+    'SCULPT_CLAY_STRIPS': {
+        'name': "Clay Strips",
+        'description': "Clay strips brush",
+        'icon': 'SCULPTMODE_HLT',
+        'idname': "builtin_brush.Clay Strips",
+        'contexts': _SCULPT_ONLY,
+    },
+    'SCULPT_SMOOTH': {
+        'name': "Smooth (Sculpt)",
+        'description': "Sculpt smooth brush",
+        'icon': 'MOD_SMOOTH',
+        'idname': "builtin_brush.Smooth",
+        'contexts': _SCULPT_ONLY,
+    },
+    'SCULPT_GRAB': {
+        'name': "Grab (Sculpt)",
+        'description': "Sculpt grab brush",
+        'icon': 'HAND',
+        'idname': "builtin_brush.Grab",
+        'contexts': _SCULPT_ONLY,
+    },
+    'SCULPT_MASK': {
+        'name': "Mask (Sculpt)",
+        'description': "Sculpt mask brush",
+        'icon': 'MOD_MASK',
+        'idname': "builtin_brush.Mask",
+        'contexts': _SCULPT_ONLY,
+    },
+    'SCULPT_INFLATE': {
+        'name': "Inflate (Sculpt)",
+        'description': "Sculpt inflate brush",
+        'icon': 'MESH_UVSPHERE',
+        'idname': "builtin_brush.Inflate",
+        'contexts': _SCULPT_ONLY,
+    },
+}
+
+
+# =============================================================================
 # Smart Toggles - Predefined property toggles
 # =============================================================================
 
@@ -934,6 +1169,27 @@ def draw_pie_item(pie, item, context):
             op = pie.operator("qp.cycle_enum_property", text=item.name, icon=icon)
             op.data_path = item.property_data_path
             op.context_type = item.property_context
+        except Exception as e:
+            pie.separator()
+
+    elif item.action_type == 'TOOL':
+        if not item.tool_idname or item.tool_idname not in TOOLBAR_TOOLS:
+            pie.separator()
+            return
+
+        tool_data = TOOLBAR_TOOLS[item.tool_idname]
+        context_key = get_current_context_key(context)
+
+        if context_key not in tool_data.get('contexts', []):
+            pie.separator()
+            return
+
+        if icon == 'DOT':
+            icon = tool_data.get('icon', 'DOT')
+
+        try:
+            op = pie.operator("wm.tool_set_by_id", text=item.name, icon=icon)
+            op.name = tool_data['idname']
         except Exception as e:
             pie.separator()
 
@@ -1760,6 +2016,48 @@ class QP_OT_SearchOperator(Operator):
         return {'FINISHED'}
 
 
+class QP_OT_SelectTool(Operator):
+    """Select a toolbar tool for a pie menu item"""
+    bl_idname = "qp.select_tool"
+    bl_label = "Select Tool"
+    bl_property = "tool"
+
+    menu_id: StringProperty()
+    item_id: StringProperty()
+
+    tool: EnumProperty(
+        name="Tool",
+        items=lambda self, context: QP_OT_SelectTool.get_tool_items(self, context)
+    )
+
+    @staticmethod
+    def get_tool_items(self, context):
+        items = []
+        for tool_id, tool_data in TOOLBAR_TOOLS.items():
+            items.append((tool_id, tool_data['name'], tool_data['description'], tool_data.get('icon', 'DOT'), len(items)))
+        items.sort(key=lambda x: x[1])
+        return items
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__package__].preferences
+        for pie_menu in prefs.custom_pie_menus:
+            if pie_menu.id == self.menu_id:
+                for item in pie_menu.items:
+                    if item.id == self.item_id:
+                        tool_data = TOOLBAR_TOOLS.get(self.tool)
+                        if tool_data:
+                            item.tool_idname = self.tool
+                            if item.name in ("New Item", f"Item {len(pie_menu.items)}"):
+                                item.name = tool_data['name']
+                        bpy.ops.wm.save_userpref()
+                        return {'FINISHED'}
+        return {'CANCELLED'}
+
+    def invoke(self, context, event):
+        context.window_manager.invoke_search_popup(self)
+        return {'FINISHED'}
+
+
 class QP_OT_SelectSmartAction(Operator):
     """Select a smart action for a pie menu item"""
     bl_idname = "qp.select_smart_action"
@@ -2482,6 +2780,15 @@ def draw_pie_item_editor(layout, pie_menu, item, index, effective_position=None)
         manual_box.prop(item, "property_context", text="Context")
         manual_box.prop(item, "property_data_path", text="Property")
 
+    elif item.action_type == 'TOOL':
+        row = item_box.row(align=True)
+        tool_data = TOOLBAR_TOOLS.get(item.tool_idname)
+        tool_name = tool_data['name'] if tool_data else "Select Tool..."
+        tool_icon = tool_data.get('icon', 'DOT') if tool_data else 'DOT'
+        op = row.operator("qp.select_tool", text=tool_name, icon=tool_icon)
+        op.menu_id = pie_menu.id
+        op.item_id = item.id
+
     # Context rules
     draw_context_rules_ui(item_box, pie_menu, item)
 
@@ -2685,6 +2992,7 @@ def _serialize_pie_menu(pie_menu):
             'smart_action_contexts': item.smart_action_contexts,
             'operator_idname': item.operator_idname,
             'operator_props': item.operator_props,
+            'tool_idname': item.tool_idname,
             'shortcut_key': item.shortcut_key,
             'shortcut_ctrl': item.shortcut_ctrl,
             'shortcut_alt': item.shortcut_alt,
@@ -2738,6 +3046,7 @@ def _deserialize_pie_menu(data, target_menu):
         new_item.smart_action_contexts = item_data.get('smart_action_contexts', '')
         new_item.operator_idname = item_data.get('operator_idname', '')
         new_item.operator_props = item_data.get('operator_props', '{}')
+        new_item.tool_idname = item_data.get('tool_idname', '')
         new_item.shortcut_key = item_data.get('shortcut_key', 'NONE')
         new_item.shortcut_ctrl = item_data.get('shortcut_ctrl', False)
         new_item.shortcut_alt = item_data.get('shortcut_alt', False)
@@ -2871,6 +3180,7 @@ classes = [
     QP_OT_PickIcon,
     QP_OT_SetIconValue,
     QP_OT_SearchOperator,
+    QP_OT_SelectTool,
     QP_OT_SelectSmartAction,
     QP_OT_SelectSmartToggle,
     QP_OT_ToggleSmartActionContext,

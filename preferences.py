@@ -373,6 +373,7 @@ class QP_PieMenuItem(PropertyGroup):
             ('OPERATOR', "Operator", "Execute a specific Blender operator"),
             ('SHORTCUT', "Shortcut", "Simulate a keyboard shortcut (e.g., Shift+D)"),
             ('PROPERTY_TOGGLE', "Toggle", "Toggle a boolean property on/off"),
+            ('TOOL', "Tool", "Activate a toolbar tool (e.g., Add Cube, Move, Rotate)"),
         ],
         default='SMART_ACTION',
         description="Type of action this item performs"
@@ -402,6 +403,13 @@ class QP_PieMenuItem(PropertyGroup):
         name="Operator Properties",
         default="{}",
         description="JSON string of operator properties"
+    )
+
+    # Tool action settings
+    tool_idname: StringProperty(
+        name="Tool",
+        default="",
+        description="Toolbar tool identifier (e.g., builtin.primitive_cube_add)"
     )
 
     # Shortcut action settings
