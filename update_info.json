@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.2.2",
-        "changelog": "- Add auto-updater with one-click updates\n- Background update checking on startup\n- Update notifications in preferences and sidebar",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.2.2/QP_Tools_V2.2.2.zip"
+        "version": "2.2.3",
+        "changelog": "- Add TOOL action type to Pie Menu Builder for toolbar tool activation\n- Context-aware tool visibility (tools auto-hide in incompatible modes)\n- Curated tool list with search popup matching Smart Action UX",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.2.3/QP_Tools_V2.2.3.zip"
     }
 }
