@@ -10,6 +10,9 @@ from .module_helper import ModuleManager
 module_enabled = True
 _is_registered = False
 
+# Tracks last known selected node group name for change detection
+_last_selected_ng = None
+
 # Module-level cache for node group materials
 _node_group_materials_cache = {}  # {node_group_name: {"materials": set(), "timestamp": time.time()}}
 _cache_lifetime = 60  # Cache lifetime in seconds
@@ -94,9 +97,70 @@ def invalidate_material_caches(self, context):
     _node_group_materials_cache.clear()
 
 
+def get_selected_nodegroup_from_shader_editor(context):
+    """Get the first selected node group from any Shader Editor area in any window"""
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == 'NODE_EDITOR':
+                for space in area.spaces:
+                    if (space.type == 'NODE_EDITOR' and
+                            space.tree_type == 'ShaderNodeTree' and
+                            space.edit_tree):
+                        for node in space.edit_tree.nodes:
+                            if node.select and node.type == 'GROUP' and node.node_tree:
+                                return node.node_tree
+    return None
 
 
-def draw_materials(layout, materials, search_term="", hide_linked=False, with_actions=True, active_object=None):
+def material_has_nodegroup(material, nodegroup):
+    """Check if a material's node tree directly contains a node using this nodegroup"""
+    if not material.use_nodes or not material.node_tree:
+        return False
+    for node in material.node_tree.nodes:
+        if node.type == 'GROUP' and node.node_tree == nodegroup:
+            return True
+    return False
+
+
+def _sync_nodegroup_selection():
+    """Timer: redraw VIEW_3D areas when the selected node group changes in any Shader Editor"""
+    global _last_selected_ng, module_enabled, _is_registered
+
+    if not module_enabled or not _is_registered:
+        return None  # Stop the timer
+
+    try:
+        current_ng = None
+        wm = bpy.context.window_manager
+        for window in wm.windows:
+            for area in window.screen.areas:
+                if area.type == 'NODE_EDITOR':
+                    for space in area.spaces:
+                        if (space.type == 'NODE_EDITOR' and
+                                space.tree_type == 'ShaderNodeTree' and
+                                space.edit_tree):
+                            for node in space.edit_tree.nodes:
+                                if node.select and node.type == 'GROUP' and node.node_tree:
+                                    current_ng = node.node_tree.name
+                                    break
+                    if current_ng:
+                        break
+            if current_ng:
+                break
+
+        if current_ng != _last_selected_ng:
+            _last_selected_ng = current_ng
+            for window in wm.windows:
+                for area in window.screen.areas:
+                    if area.type == 'VIEW_3D':
+                        area.tag_redraw()
+    except Exception:
+        pass
+
+    return 0.1
+
+
+def draw_materials(layout, materials, search_term="", hide_linked=False, with_actions=True, active_object=None, active_nodegroup=None):
     """Centralized function for drawing material lists
     
     Args:
@@ -292,11 +356,21 @@ def draw_materials(layout, materials, search_term="", hide_linked=False, with_ac
             # Apply material button (existing)
             op = row.operator("material.apply_to_selected", text="", icon='CHECKMARK')
             op.material_name = mat.name
-            
+
             # NEW: Select Linked Objects button
             op = row.operator("material.select_linked_objects", text="", icon='RESTRICT_SELECT_OFF')
             op.material_name = mat.name
-    
+
+        # Nodegroup spread status
+        if active_nodegroup and not is_gp_material:
+            has_ng = material_has_nodegroup(mat, active_nodegroup)
+            if has_ng:
+                row.label(text="", icon='CHECKMARK')
+            else:
+                op = row.operator("material.add_nodegroup_to_material", text="", icon='ADD')
+                op.material_name = mat.name
+                op.nodegroup_name = active_nodegroup.name
+
     # "Show more" indicator if there are more than we displayed
     if len(filtered_materials) > max_display:
         row = scroll_col.row()
@@ -1293,6 +1367,109 @@ class MATERIAL_OT_purge_orphaned_data(Operator):
         
         return {'FINISHED'}
 
+class MATERIAL_OT_add_nodegroup_to_material(Operator):
+    bl_idname = "material.add_nodegroup_to_material"
+    bl_label = "Add Node Group to Material"
+    bl_description = "Add the selected node group to this material"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    material_name: StringProperty()
+    nodegroup_name: StringProperty()
+
+    def execute(self, context):
+        mat = bpy.data.materials.get(self.material_name)
+        ng = bpy.data.node_groups.get(self.nodegroup_name)
+
+        if not mat:
+            self.report({'ERROR'}, f"Material '{self.material_name}' not found")
+            return {'CANCELLED'}
+        if not ng:
+            self.report({'ERROR'}, f"Node group '{self.nodegroup_name}' not found")
+            return {'CANCELLED'}
+
+        if material_has_nodegroup(mat, ng):
+            self.report({'INFO'}, f"Node group already in '{self.material_name}'")
+            return {'CANCELLED'}
+
+        mat.use_nodes = True
+        node = mat.node_tree.nodes.new('ShaderNodeGroup')
+        node.node_tree = ng
+        if mat.node_tree.nodes:
+            max_y = max(n.location.y for n in mat.node_tree.nodes if n != node)
+            node.location = (0, max_y + 200)
+        else:
+            node.location = (0, 0)
+
+        self.report({'INFO'}, f"Added '{ng.name}' to '{mat.name}'")
+        return {'FINISHED'}
+
+
+class MATERIAL_OT_add_nodegroup_to_all(Operator):
+    bl_idname = "material.add_nodegroup_to_all"
+    bl_label = "Add Node Group to All Materials"
+    bl_description = "Add the selected node group to all materials that don't already have it"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    nodegroup_name: StringProperty()
+
+    def execute(self, context):
+        ng = bpy.data.node_groups.get(self.nodegroup_name)
+        if not ng:
+            self.report({'ERROR'}, f"Node group '{self.nodegroup_name}' not found")
+            return {'CANCELLED'}
+
+        added = 0
+        skipped = 0
+        for mat in bpy.data.materials:
+            if hasattr(mat, 'is_grease_pencil') and mat.is_grease_pencil:
+                continue
+            if material_has_nodegroup(mat, ng):
+                skipped += 1
+                continue
+            mat.use_nodes = True
+            node = mat.node_tree.nodes.new('ShaderNodeGroup')
+            node.node_tree = ng
+            other_nodes = [n for n in mat.node_tree.nodes if n != node]
+            if other_nodes:
+                max_y = max(n.location.y for n in other_nodes)
+                node.location = (0, max_y + 200)
+            else:
+                node.location = (0, 0)
+            added += 1
+
+        self.report({'INFO'}, f"Added '{ng.name}' to {added} material(s), skipped {skipped}")
+        return {'FINISHED'}
+
+
+class MATERIAL_OT_remove_nodegroup_from_all(Operator):
+    bl_idname = "material.remove_nodegroup_from_all"
+    bl_label = "Remove Node Group from All Materials"
+    bl_description = "Remove this node group from all materials that contain it"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    nodegroup_name: StringProperty()
+
+    def execute(self, context):
+        ng = bpy.data.node_groups.get(self.nodegroup_name)
+        if not ng:
+            self.report({'ERROR'}, f"Node group '{self.nodegroup_name}' not found")
+            return {'CANCELLED'}
+
+        removed_from = 0
+        for mat in bpy.data.materials:
+            if not mat.use_nodes or not mat.node_tree:
+                continue
+            nodes_to_remove = [n for n in mat.node_tree.nodes
+                               if n.type == 'GROUP' and n.node_tree == ng]
+            if nodes_to_remove:
+                for node in nodes_to_remove:
+                    mat.node_tree.nodes.remove(node)
+                removed_from += 1
+
+        self.report({'INFO'}, f"Removed '{ng.name}' from {removed_from} material(s)")
+        return {'FINISHED'}
+
+
 # Update the register function to include our new operators
 def register():
     if not ModuleManager.register_module(sys.modules[__name__]):
@@ -1307,9 +1484,15 @@ def register():
     ModuleManager.safe_register_class(MATERIAL_OT_create_new)
     ModuleManager.safe_register_class(MATERIAL_OT_select_linked_objects)
     ModuleManager.safe_register_class(MATERIAL_OT_toggle_show_all)
-    
+    ModuleManager.safe_register_class(MATERIAL_OT_add_nodegroup_to_material)
+    ModuleManager.safe_register_class(MATERIAL_OT_add_nodegroup_to_all)
+    ModuleManager.safe_register_class(MATERIAL_OT_remove_nodegroup_from_all)
+
     # Register property group
     bpy.types.Scene.material_manager_props = bpy.props.PointerProperty(type=MaterialManagerProperties)
+
+    if not bpy.app.timers.is_registered(_sync_nodegroup_selection):
+        bpy.app.timers.register(_sync_nodegroup_selection, first_interval=0.1)
     
 
 def unregister():
@@ -1325,4 +1508,10 @@ def unregister():
     ModuleManager.safe_unregister_class(MATERIAL_OT_create_new)
     ModuleManager.safe_unregister_class(MATERIAL_OT_select_linked_objects)
     ModuleManager.safe_unregister_class(MATERIAL_OT_toggle_show_all)
+    ModuleManager.safe_unregister_class(MATERIAL_OT_add_nodegroup_to_material)
+    ModuleManager.safe_unregister_class(MATERIAL_OT_add_nodegroup_to_all)
+    ModuleManager.safe_unregister_class(MATERIAL_OT_remove_nodegroup_from_all)
     ModuleManager.safe_unregister_class(MaterialManagerProperties)
+
+    if bpy.app.timers.is_registered(_sync_nodegroup_selection):
+        bpy.app.timers.unregister(_sync_nodegroup_selection)

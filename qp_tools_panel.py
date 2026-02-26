@@ -215,75 +215,92 @@ class QP_PT_materials_panel(Panel):
     def draw(self, context):
         layout = self.layout
         props = context.scene.material_manager_props
-        
+
+        material_list_module = sys.modules.get(f"{__package__}.MaterialList")
+
         # Add purge button at the top
         purge_row = layout.row(align=True)
         purge_row.operator("material.purge_unused", icon='TRASH')
-        
+
         # Add hide linked materials option
         options_row = layout.row(align=True)
         options_row.prop(props, "hide_linked_materials")
-        
+
         # Search field
         layout.prop(props, "search_term", icon='VIEWZOOM')
-        
+
+        # Detect selected node group in any open Shader Editor
+        active_nodegroup = None
+        if material_list_module and hasattr(material_list_module, "get_selected_nodegroup_from_shader_editor"):
+            active_nodegroup = material_list_module.get_selected_nodegroup_from_shader_editor(context)
+
+        # Node Group Spread section (only shown when a node group is selected in shader editor)
+        if active_nodegroup:
+            ng_box = layout.box()
+            header_row = ng_box.row(align=True)
+            header_row.label(text="", icon='NODETREE')
+            header_row.label(text=active_nodegroup.name)
+            action_row = ng_box.row(align=True)
+            op = action_row.operator("material.add_nodegroup_to_all", text="Add to All", icon='ADD')
+            op.nodegroup_name = active_nodegroup.name
+            op = action_row.operator("material.remove_nodegroup_from_all", text="Remove from All", icon='X')
+            op.nodegroup_name = active_nodegroup.name
+
         # Object Materials collapsible section
         object_box = layout.box()
         object_header = object_box.row(align=True)
         object_header.alignment = 'LEFT'
-        
+
         icon = 'TRIA_DOWN' if props.object_materials_expanded else 'TRIA_RIGHT'
-        object_header.prop(props, "object_materials_expanded", text="Object Materials", 
+        object_header.prop(props, "object_materials_expanded", text="Object Materials",
                         icon=icon, emboss=False)
-        
+
         # Show object materials if expanded
         if props.object_materials_expanded:
             # Get all regular materials (non-grease-pencil)
-            object_materials = [mat for mat in bpy.data.materials 
+            object_materials = [mat for mat in bpy.data.materials
                             if not (hasattr(mat, "is_grease_pencil") and mat.is_grease_pencil)]
-            
+
             # Add New Material button at the top of the materials list
             new_mat_row = object_box.row(align=True)
-            new_mat_row.scale_y = 1.25  # Make button slightly larger for emphasis
+            new_mat_row.scale_y = 1.25
             new_mat_row.operator("material.create_new", icon='ADD', text="New Material")
-            
-            # Import MaterialList module to use our enhanced draw_materials function
-            material_list_module = sys.modules.get(f"{__package__}.MaterialList")
+
             if material_list_module and hasattr(material_list_module, "draw_materials"):
                 material_list_module.draw_materials(
-                    object_box, 
-                    object_materials, 
-                    props.search_term, 
-                    props.hide_linked_materials, 
-                    True,  # with_actions
-                    context.active_object  # Pass the active object
+                    object_box,
+                    object_materials,
+                    props.search_term,
+                    props.hide_linked_materials,
+                    True,
+                    context.active_object,
+                    active_nodegroup,
                 )
-        
+
         # Grease Pencil Materials collapsible section
         gp_box = layout.box()
         gp_header = gp_box.row(align=True)
         gp_header.alignment = 'LEFT'
-        
+
         icon = 'TRIA_DOWN' if props.grease_pencil_materials_expanded else 'TRIA_RIGHT'
-        gp_header.prop(props, "grease_pencil_materials_expanded", text="Grease Pencil Materials", 
+        gp_header.prop(props, "grease_pencil_materials_expanded", text="Grease Pencil Materials",
                     icon=icon, emboss=False)
-        
+
         # Show grease pencil materials if expanded
         if props.grease_pencil_materials_expanded:
             # Filter just grease pencil materials
-            gp_materials = [m for m in bpy.data.materials 
+            gp_materials = [m for m in bpy.data.materials
                         if hasattr(m, "is_grease_pencil") and m.is_grease_pencil]
-                        
-            # Import MaterialList module to use our enhanced draw_materials function
-            material_list_module = sys.modules.get(f"{__package__}.MaterialList")
+
             if material_list_module and hasattr(material_list_module, "draw_materials"):
                 material_list_module.draw_materials(
-                    gp_box, 
-                    gp_materials, 
-                    props.search_term, 
-                    props.hide_linked_materials, 
-                    True,  # with_actions
-                    context.active_object  # Pass the active object
+                    gp_box,
+                    gp_materials,
+                    props.search_term,
+                    props.hide_linked_materials,
+                    True,
+                    context.active_object,
+                    active_nodegroup,
                 )
                 
 # QuickAsset Library sub-panel for 3D View
