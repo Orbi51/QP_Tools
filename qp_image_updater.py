@@ -89,7 +89,7 @@ class QP_ImageTextureUpdater:
 
             # Handle if it's another node group that outputs an image
             if linked_node.type == 'GROUP' and linked_node.outputs:
-                return cls.get_connected_image(linked_node, from_socket.name, None)
+                return cls.get_connected_image(linked_node, from_socket.name, parent_chain)
         else:
             # Socket is not linked - check for direct image assignment
             try:
@@ -212,6 +212,52 @@ class QP_ImageTextureUpdater:
         return any(pattern in node_tree_name for pattern in cls.NODE_PATTERNS)
     
     @classmethod
+    def find_tb_images_via_group_input(cls, group_node, input_socket_name):
+        if not group_node.node_tree:
+            return []
+        result = []
+        for node in group_node.node_tree.nodes:
+            if not cls.is_image_texture_node(node):
+                continue
+            if "Image" not in node.inputs:
+                continue
+            socket = node.inputs["Image"]
+            if not socket.is_linked or not socket.links:
+                continue
+            from_node = socket.links[0].from_node
+            from_socket = socket.links[0].from_socket
+            if from_node.type == 'GROUP_INPUT' and from_socket.name == input_socket_name:
+                result.append(node)
+        return result
+
+    @classmethod
+    def propagate_to_downstream_groups(cls, node, new_image):
+        processed = set()
+        for output_socket in node.outputs:
+            for link in output_socket.links:
+                dest_node = link.to_node
+                dest_socket_name = link.to_socket.name
+                if dest_node.type != 'GROUP' or not dest_node.node_tree:
+                    continue
+                dest_id = id(dest_node)
+                if dest_id in processed:
+                    continue
+                inner_nodes = cls.find_tb_images_via_group_input(dest_node, dest_socket_name)
+                if not inner_nodes:
+                    continue
+                processed.add(dest_id)
+                cls.make_node_tree_unique(dest_node)
+                for inner in inner_nodes:
+                    fresh_inner = dest_node.node_tree.nodes.get(inner.name)
+                    if fresh_inner is None:
+                        continue
+                    cls.make_node_tree_unique(fresh_inner)
+                    cls.update_internal_image_texture(fresh_inner, new_image)
+                    if hasattr(fresh_inner, 'qp_node_info'):
+                        fresh_inner.qp_node_info.current_image = new_image
+                    cls.log(f"  Propagated image to {fresh_inner.name} inside {dest_node.name}")
+
+    @classmethod
     def find_trackable_nodes_recursive(cls, node_tree, parent_chain=None, parent_path="", visited=None):
         """
         Recursively find all trackable image texture nodes in a node tree and nested groups.
@@ -314,6 +360,8 @@ class QP_ImageTextureUpdater:
 
             # Update internal Image Texture nodes recursively
             cls.update_internal_image_texture(node, current_image)
+
+            cls.propagate_to_downstream_groups(node, current_image)
 
             # Store new state on the (possibly refreshed) node
             node.qp_node_info.current_image = current_image
