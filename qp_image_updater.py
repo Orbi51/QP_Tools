@@ -52,47 +52,43 @@ class QP_ImageTextureUpdater:
             print(f"[QP Image Updater] {message}")
     
     @classmethod
-    def get_connected_image(cls, node, socket_name="Image", parent_group_node=None):
+    def get_connected_image(cls, node, socket_name="Image", parent_chain=None):
         """
         Get the image connected to or set on an input socket.
-        Resolves Group Input connections by checking parent GROUP node.
-        
+        Resolves Group Input connections by walking up the full parent chain.
+
         Args:
             node: The node to check
             socket_name: Name of the input socket
-            parent_group_node: The parent GROUP node if this node is nested
-            
+            parent_chain: List of ancestor GROUP nodes (outermost first) containing this node
+
         Returns:
             Image datablock or None
         """
         if socket_name not in node.inputs:
             return None
-            
+
         socket = node.inputs[socket_name]
-        
+
         # Check if socket is linked
         if socket.is_linked and socket.links:
             linked_node = socket.links[0].from_node
             from_socket = socket.links[0].from_socket
-            
+
             # If it's an Image Texture node, get its image
             if linked_node.type == 'TEX_IMAGE':
                 return linked_node.image
-            
-            # If connected to Group Input, trace back to parent GROUP node
+
+            # If connected to Group Input, trace back up the parent chain
             if linked_node.type == 'GROUP_INPUT':
-                if parent_group_node:
-                    # Find which input on parent GROUP corresponds to this Group Input socket
-                    # The socket name on Group Input should match the input name on the GROUP node
-                    if from_socket.name in parent_group_node.inputs:
-                        # Recursively get the image connected to the parent GROUP node
-                        # Note: We don't pass parent_group_node here as we're now at outer level
-                        return cls.get_connected_image(parent_group_node, from_socket.name, None)
+                if parent_chain:
+                    immediate_parent = parent_chain[-1]
+                    if from_socket.name in immediate_parent.inputs:
+                        return cls.get_connected_image(immediate_parent, from_socket.name, parent_chain[:-1])
                 return None
-            
+
             # Handle if it's another node group that outputs an image
             if linked_node.type == 'GROUP' and linked_node.outputs:
-                # Try to trace back further through the node group
                 return cls.get_connected_image(linked_node, from_socket.name, None)
         else:
             # Socket is not linked - check for direct image assignment
@@ -104,7 +100,7 @@ class QP_ImageTextureUpdater:
                         return default_val
             except (AttributeError, TypeError):
                 pass
-        
+
         return None
     
     @classmethod
@@ -121,6 +117,34 @@ class QP_ImageTextureUpdater:
             return True
         return False
     
+    @classmethod
+    def ensure_chain_unique(cls, material, parent_chain, trackable_node):
+        """
+        Walk the parent chain outermost-first, making each GROUP's node tree unique
+        if it has multiple users. Refreshes node references via name lookup after
+        each copy, so subsequent lookups are always in the current (fresh) tree.
+
+        Returns (fresh_parent_chain, fresh_trackable_node), or (None, None) on failure.
+        """
+        current_tree = material.node_tree
+        fresh_chain = []
+
+        for group_node in parent_chain:
+            fresh_node = current_tree.nodes.get(group_node.name)
+            if fresh_node is None:
+                return None, None
+
+            if fresh_node.node_tree and fresh_node.node_tree.users > 1:
+                new_tree = fresh_node.node_tree.copy()
+                fresh_node.node_tree = new_tree
+                cls.log(f"Made parent group unique: {fresh_node.name}")
+
+            fresh_chain.append(fresh_node)
+            current_tree = fresh_node.node_tree
+
+        fresh_trackable = current_tree.nodes.get(trackable_node.name)
+        return fresh_chain, fresh_trackable
+
     @classmethod
     def update_internal_image_texture(cls, node_group, target_image, depth=0, visited=None):
         """
@@ -167,13 +191,13 @@ class QP_ImageTextureUpdater:
         return updated
     
     @classmethod
-    def initialize_node_metadata(cls, node):
+    def initialize_node_metadata(cls, node, parent_chain=None):
         """Initialize metadata for a tracked node"""
         if not hasattr(node, 'qp_node_info'):
             return False
-        
+
         node.qp_node_info.is_tracked = True
-        current_image = cls.get_connected_image(node, "Image", None)
+        current_image = cls.get_connected_image(node, "Image", parent_chain)
         node.qp_node_info.current_image = current_image
         return True
     
@@ -188,49 +212,50 @@ class QP_ImageTextureUpdater:
         return any(pattern in node_tree_name for pattern in cls.NODE_PATTERNS)
     
     @classmethod
-    def find_trackable_nodes_recursive(cls, node_tree, parent_group_node=None, parent_path="", visited=None):
+    def find_trackable_nodes_recursive(cls, node_tree, parent_chain=None, parent_path="", visited=None):
         """
         Recursively find all trackable image texture nodes in a node tree and nested groups.
-        
+
         Args:
             node_tree: The node tree to search
-            parent_group_node: The GROUP node that contains this node_tree (if nested)
+            parent_chain: List of ancestor GROUP nodes (outermost first)
             parent_path: String representing the path to this node tree
             visited: Set of visited node trees to prevent infinite loops
-            
+
         Returns:
-            List of tuples: (node, parent_group_node, path_string)
+            List of tuples: (node, parent_chain, path_string)
         """
         if not node_tree:
             return []
-        
-        # Initialize visited set on first call
+
         if visited is None:
             visited = set()
-        
+
+        if parent_chain is None:
+            parent_chain = []
+
         # Prevent infinite loops
         if id(node_tree) in visited:
             return []
-        
+
         visited.add(id(node_tree))
         found_nodes = []
-        
+
         for node in node_tree.nodes:
             current_path = f"{parent_path} > {node.name}" if parent_path else node.name
-            
+
             # Check if this is a trackable image texture node
             if cls.is_image_texture_node(node):
-                found_nodes.append((node, parent_group_node, current_path))
+                found_nodes.append((node, parent_chain, current_path))
                 cls.log(f"Found trackable node: {current_path}")
-            
-            # Recursively search nested node groups
+
+            # Recursively search nested node groups, extending the parent chain
             if node.type == 'GROUP' and node.node_tree:
-                # Pass this GROUP node as the parent for nodes inside it
                 nested_nodes = cls.find_trackable_nodes_recursive(
-                    node.node_tree, node, current_path, visited
+                    node.node_tree, parent_chain + [node], current_path, visited
                 )
                 found_nodes.extend(nested_nodes)
-        
+
         return found_nodes
     
     @classmethod
@@ -248,23 +273,21 @@ class QP_ImageTextureUpdater:
         cls.log(f"Processing material: {material.name} ({len(trackable_nodes)} trackable nodes)")
         
         # Process each found node
-        for node, parent_group, path in trackable_nodes:
+        for node, parent_chain, path in trackable_nodes:
             # Initialize metadata if not already done
             if hasattr(node, 'qp_node_info') and not node.qp_node_info.is_tracked:
-                cls.initialize_node_metadata(node)
-            
+                cls.initialize_node_metadata(node, parent_chain)
+
             # Check for updates
-            cls.check_and_update_node(material, node, parent_group, path)
+            cls.check_and_update_node(material, node, parent_chain, path)
     
     @classmethod
-    def check_and_update_node(cls, material, node, parent_group_node, node_path=""):
+    def check_and_update_node(cls, material, node, parent_chain, node_path=""):
         """Check if a node needs updating and update it if necessary"""
         if not hasattr(node, 'qp_node_info'):
             return
-        
-        # Get current image from the Image input socket
-        # Pass parent_group_node to resolve Group Input connections
-        current_image = cls.get_connected_image(node, "Image", parent_group_node)
+
+        current_image = cls.get_connected_image(node, "Image", parent_chain)
         
         # Get last known state from metadata
         last_image = node.qp_node_info.current_image
@@ -276,16 +299,23 @@ class QP_ImageTextureUpdater:
             cls.log(f"  Old: {last_image.name if last_image else 'None'}")
             cls.log(f"  New: {current_image.name if current_image else 'None'}")
             
-            # Make node tree unique if it has multiple users
+            # Ensure all parent groups are unique first (outermost to innermost),
+            # then get fresh node references after any copies
+            if parent_chain:
+                fresh_chain, fresh_node = cls.ensure_chain_unique(material, parent_chain, node)
+                if fresh_node is not None:
+                    node = fresh_node
+
+            # Make trackable node's own tree unique
             was_made_unique = cls.make_node_tree_unique(node)
-            
+
             if was_made_unique:
-                cls.log(f"  └─ Made node tree unique (was shared by {node.node_tree.users + 1} instances)")
-            
+                cls.log(f"  └─ Made node tree unique (was shared)")
+
             # Update internal Image Texture nodes recursively
             cls.update_internal_image_texture(node, current_image)
-            
-            # Store new state in metadata
+
+            # Store new state on the (possibly refreshed) node
             node.qp_node_info.current_image = current_image
 
 
@@ -358,8 +388,8 @@ class QP_IMAGE_UPDATER_OT_manual_update(bpy.types.Operator):
                 total_count += count
                 
                 if count > 0:
-                    for node, parent_group, path in trackable_nodes:
-                        QP_ImageTextureUpdater.check_and_update_node(material, node, parent_group, path)
+                    for node, parent_chain, path in trackable_nodes:
+                        QP_ImageTextureUpdater.check_and_update_node(material, node, parent_chain, path)
         
         self.report({'INFO'}, f"Processed {total_count} image texture node(s) including nested groups")
         return {'FINISHED'}
