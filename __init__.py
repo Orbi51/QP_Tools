@@ -23,6 +23,7 @@ from . import qp_tools_panel
 from . import ui
 from . import asset_cache
 from . import qp_image_updater
+from . import qp_aov_manager
 from . import updater
 
 # Main modules
@@ -159,6 +160,7 @@ def register():
     qp_tools_panel.register()
     ui.register()
     qp_image_updater.register()
+    qp_aov_manager.register()
     updater.register()
 
     # Register the new handler after all other initializations
@@ -178,6 +180,7 @@ def unregister():
     # Unregister in EXACT reverse order of register()
     updater.unregister()
     ui.unregister()
+    qp_aov_manager.unregister()
     qp_image_updater.unregister()
     qp_tools_panel.unregister()
     

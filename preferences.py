@@ -79,7 +79,8 @@ class QP_OT_toggle_module(Operator):
             "asset_browser_pie_enabled": "Access asset libraries via a pie menu",
             "qp_tools_pie_menu_enabled": "Access tools and assets via a pie menu",
             "quick_asset_library_enabled": "Quickly create and manage asset libraries",
-            "pie_menu_builder_enabled": "Create custom pie menus with context-sensitive actions"
+            "pie_menu_builder_enabled": "Create custom pie menus with context-sensitive actions",
+            "aov_manager_enabled": "Automatically sync AOV Output nodes to view layer AOVs"
         }
         return module_tooltips.get(properties.module_prop, "Toggle the module on/off")
     
@@ -1091,6 +1092,14 @@ class QP_Tools_Preferences(AddonPreferences):
         update=update_module_state
     )
 
+    # AOV Manager properties
+    aov_manager_enabled: BoolProperty(
+        name="AOV Manager",
+        description="Automatically sync AOV Output nodes to view layer AOVs",
+        default=True,
+        update=update_module_state
+    )
+
     quick_asset_library_path: StringProperty(
         name="Default Library Path",
         description="Default path for the asset library",
@@ -1203,7 +1212,8 @@ class QP_Tools_Preferences(AddonPreferences):
             draw_toggle_button(ux_col, "qp_tools_pie_menu_enabled", "Tool Assets Pie Menu")
             draw_toggle_button(ux_col, "asset_browser_pie_enabled", "Asset Browser Pie Menu")
             draw_toggle_button(ux_col, "pie_menu_builder_enabled", "Pie Menu Builder")
-                        
+            draw_toggle_button(ux_col, "aov_manager_enabled", "AOV Manager")
+
             # Quick Asset Library settings (properly indented inside the CORE tab condition)
             if self.quick_asset_library_enabled:
                 qal_box = module_box.box()

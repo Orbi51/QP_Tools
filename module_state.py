@@ -23,6 +23,7 @@ def is_module_enabled(module_name):
             "qp_tools_pie_menu": "qp_tools_pie_menu_enabled",
             "pie_menu_builder": "pie_menu_builder_enabled",
             "quick_asset_library": "quick_asset_library_enabled",
+            "qp_aov_manager": "aov_manager_enabled",
             "ui": True  # UI is always enabled
         }
         
