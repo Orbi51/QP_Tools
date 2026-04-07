@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.2.3",
-        "changelog": "- Add TOOL action type to Pie Menu Builder for toolbar tool activation\n- Context-aware tool visibility (tools auto-hide in incompatible modes)\n- Curated tool list with search popup matching Smart Action UX",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.2.3/QP_Tools_V2.2.3.zip"
+        "version": "2.2.4",
+        "changelog": "- Quick Asset Library: save assets to a new catalog directly from the save panel",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.2.4/QP_Tools_V2.2.4.zip"
     }
 }
