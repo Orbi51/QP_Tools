@@ -93,9 +93,14 @@ def draw_node_asset_panel(panel_self, context, tree_type_name, asset_type, get_s
     metadata_box.label(text="Asset Metadata:", icon='PROPERTIES')
     metadata_box.active = can_proceed
     
-    metadata_box.label(text="Catalog:")
-    metadata_box.prop(settings, "selected_catalog", text="")
-    
+    catalog_row = metadata_box.row()
+    catalog_row.label(text="Catalog:")
+    catalog_row.prop(settings, "create_new_catalog", text="New", toggle=True)
+    if settings.create_new_catalog:
+        metadata_box.prop(settings, "new_catalog_path", text="")
+    else:
+        metadata_box.prop(settings, "selected_catalog", text="")
+
     metadata_box.label(text="Tags (comma-separated):")
     metadata_box.prop(settings, "tags", text="")
 
@@ -374,9 +379,14 @@ class QP_PT_quickasset_panel(Panel):
         metadata_box.active = can_proceed
         
         # Catalog selection
-        metadata_box.label(text="Catalog:")
-        metadata_box.prop(settings, "selected_catalog", text="")
-        
+        catalog_row = metadata_box.row()
+        catalog_row.label(text="Catalog:")
+        catalog_row.prop(settings, "create_new_catalog", text="New", toggle=True)
+        if settings.create_new_catalog:
+            metadata_box.prop(settings, "new_catalog_path", text="")
+        else:
+            metadata_box.prop(settings, "selected_catalog", text="")
+
         # Tags
         metadata_box.label(text="Tags (comma-separated):")
         metadata_box.prop(settings, "tags", text="")

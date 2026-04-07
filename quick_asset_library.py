@@ -226,115 +226,38 @@ except Exception as e:
     script_file.close()
     return script_file.name
 
-# --- Helper functions for selection logic ---
-def get_selected_objects(context):
-    return list(context.selected_objects) if context.selected_objects else []
+def create_or_get_catalog(library_path, catalog_path_str):
+    """Write a new catalog entry to blender_assets.cats.txt and return its UUID.
+    If a catalog with that path already exists, returns its existing UUID."""
+    import uuid
 
-def get_selected_node_groups(context):
-    selected_groups = []
-    tree = get_active_node_tree(context)
-    if tree:
-        for node in tree.nodes:
-            if node.select and node.type == 'GROUP' and node.node_tree:
-                selected_groups.append(node.node_tree)
-    return selected_groups
+    catalog_file = os.path.join(library_path, "blender_assets.cats.txt")
+    simple_name = catalog_path_str.split("/")[-1]
 
-def get_active_material(context):
-    if context.active_object and context.active_object.active_material:
-        return context.active_object.active_material
-    return None
-
-def get_active_geonode_tree(context):
-    return get_active_node_tree(context)
-
-# --- Unified panel draw helper ---
-def draw_asset_library_panel(self, context, asset_type, get_selection_fn):
-    layout = self.layout
-    settings = context.scene.asset_library_settings
-
-    # Status indicator
-    if is_background_process_running():
-        status_file = get_temp_file_path()
-        try:
-            with open(status_file, 'r') as f:
-                status = json.load(f)
-                status_box = layout.box()
-                status_box.label(text=f"Status: {status.get('status', 'Processing...')}", icon='SORTTIME')
-        except (OSError, json.JSONDecodeError):
-            pass  # Could not read status file
-
-    # Library Path
-    path_box = layout.box()
-    path_box.label(text="Library Location:", icon='FILE_FOLDER')
-    path_box.prop(settings, "library_path", text="")
-
-    if not settings.library_path:
-        return
-
-    # Target File
-    file_box = layout.box()
-    file_box.label(text="Target File:", icon='FILE_BLEND')
-    file_box.prop(settings, "create_new_library")
-    if settings.create_new_library:
-        file_box.prop(settings, "new_file_name", text="File Name")
+    if os.path.exists(catalog_file):
+        with open(catalog_file, 'r') as f:
+            lines = f.readlines()
+        for line in lines:
+            if line.startswith("#") or not line.strip():
+                continue
+            parts = line.strip().split(":", 2)
+            if len(parts) >= 2 and parts[1] == catalog_path_str:
+                return parts[0]  # reuse existing UUID
+        new_uuid = str(uuid.uuid4())
+        with open(catalog_file, 'a') as f:
+            f.write(f"{new_uuid}:{catalog_path_str}:{simple_name}\n")
     else:
-        file_box.prop(settings, "existing_file")
+        new_uuid = str(uuid.uuid4())
+        with open(catalog_file, 'w') as f:
+            f.write("# This is an Asset Catalog Definition file for Blender.\n#\n")
+            f.write("# Empty lines and lines starting with `#` will be ignored.\n")
+            f.write("# The first non-ignored line should be the version indicator.\n")
+            f.write("# Other lines are of the format \"UUID:catalog/path/for/assets:simple catalog name\"\n\n")
+            f.write("VERSION 1\n\n")
+            f.write(f"{new_uuid}:{catalog_path_str}:{simple_name}\n")
 
-    can_proceed = settings.create_new_library or settings.existing_file != 'NONE'
+    return new_uuid
 
-    # Show scan status if needed
-    if not settings.create_new_library and settings.existing_file != 'NONE':
-        filepath = os.path.join(settings.library_path, settings.existing_file)
-        for dtype in ('objects', 'materials', 'node_groups'):
-            cache_key = (filepath, dtype)
-            status = _file_scan_status.get(cache_key)
-            if status == "pending":
-                layout.label(text=f"Scanning {settings.existing_file} for {dtype}...", icon='TIME')
-            elif status == "error":
-                layout.label(text=f"Error scanning {settings.existing_file} for {dtype}", icon='ERROR')
-
-    # Metadata
-    metadata_box = layout.box()
-    metadata_box.label(text="Asset Metadata:", icon='PROPERTIES')
-    metadata_box.active = can_proceed
-    metadata_box.label(text="Catalog:")
-    metadata_box.prop(settings, "selected_catalog", text="")
-    metadata_box.label(text="Tags (comma-separated):")
-    metadata_box.prop(settings, "tags", text="")
-
-    # Rename
-    rename_box = layout.box()
-    rename_box.label(text="Naming Options:", icon='SORTALPHA')
-    rename_box.active = can_proceed
-    rename_box.prop(settings, "rename_viewport_assets")
-    if settings.rename_viewport_assets:
-        rename_box.prop(settings, "asset_base_name")
-
-    # Selection Info
-    selection_box = layout.box()
-    selection_box.label(text="What will be saved:", icon='EXPORT')
-    selection_box.active = can_proceed
-    selected_items = get_selection_fn(context)
-    if selected_items:
-        selection_box.label(text=f"{len(selected_items)} items selected")
-        for i, item in enumerate(selected_items):
-            name = item.name
-            if settings.rename_viewport_assets and settings.asset_base_name:
-                new_name = settings.asset_base_name
-                if i > 0:
-                    new_name += f".{str(i+1).zfill(3)}"
-                selection_box.label(text=f"â€¢ {name} â†’ {new_name}")
-            else:
-                selection_box.label(text=f"â€¢ {name}")
-    else:
-        selection_box.label(text="No items selected")
-
-    # Add to Library Button
-    row = layout.row(align=True)
-    row.scale_y = 1.5
-    row.enabled = can_proceed and not is_background_process_running()
-    op = row.operator(ASSET_OT_add_to_library.bl_idname, text="Add to Library", icon='ASSET_MANAGER')
-    op.asset_type = asset_type
 
 # Property groups
 class AssetLibrarySettings(PropertyGroup):
@@ -485,6 +408,18 @@ class AssetLibrarySettings(PropertyGroup):
         default=0
     )
 
+    create_new_catalog: BoolProperty(
+        name="New Catalog",
+        description="Create a new catalog instead of selecting an existing one",
+        default=False
+    )
+
+    new_catalog_path: StringProperty(
+        name="New Catalog Path",
+        description="Name for the new catalog. Use / for sub-catalogs (e.g. 'Props' or 'Props/Furniture')",
+        default=""
+    )
+
     tags: StringProperty(
         name="Tags",
         description="Add tags to the assets (comma-separated)",
@@ -580,17 +515,18 @@ bpy.ops.wm.save_mainfile(filepath=r"{}")
         
         return selected_groups
 
-    def start_background_process(self, context, source_file, target_file, data_type, asset_names, conflict_action=None):
+    def start_background_process(self, context, source_file, target_file, data_type, asset_names, conflict_action=None, catalog_uuid=None):
         """Start the background Blender process"""
         try:
+            settings = context.scene.asset_library_settings
             # Create parameters for background script
             params = {
                 "source_file": source_file,
                 "target_file": target_file,
                 "data_type": data_type,
                 "asset_names": list(asset_names),
-                "catalog_uuid": context.scene.asset_library_settings.selected_catalog,
-                "tags": context.scene.asset_library_settings.tags
+                "catalog_uuid": catalog_uuid if catalog_uuid is not None else settings.selected_catalog,
+                "tags": settings.tags
             }
             if conflict_action:
                 params["conflict_action"] = conflict_action
@@ -680,14 +616,14 @@ bpy.ops.wm.save_mainfile(filepath=r"{}")
         
         return 0.5
 
-    def add_to_existing(self, context, filepath, data_blocks, data_type, main_data_names):
+    def add_to_existing(self, context, filepath, data_blocks, data_type, main_data_names, catalog_uuid=None):
         """Add assets to existing library using background process"""
         settings = context.scene.asset_library_settings
-        
+
         # Create temporary file with assets
         temp_dir = tempfile.gettempdir()
         temp_file = os.path.join(temp_dir, "temp_asset.blend")
-        
+
         try:
             # Save only selected data blocks to temporary file
             bpy.data.libraries.write(
@@ -696,7 +632,7 @@ bpy.ops.wm.save_mainfile(filepath=r"{}")
                 fake_user=True,
                 compress=True
             )
-            
+
             # Start background process
             success = self.start_background_process(
                 context,
@@ -704,7 +640,8 @@ bpy.ops.wm.save_mainfile(filepath=r"{}")
                 filepath,
                 data_type,
                 main_data_names,
-                settings.conflict_action
+                settings.conflict_action,
+                catalog_uuid=catalog_uuid
             )
             
             if not success:
@@ -856,8 +793,16 @@ bpy.ops.wm.save_mainfile(filepath=r"{}")
                 self.report({'INFO'}, f"Name conflicts: {', '.join(conflicts)} - Will override existing assets")
                 # Continue with the operation
 
+        # Resolve catalog UUID
+        catalog_uuid = None
+        if settings.create_new_catalog:
+            if not settings.new_catalog_path.strip():
+                self.report({'ERROR'}, "Please enter a catalog path")
+                return {'CANCELLED'}
+            catalog_uuid = create_or_get_catalog(settings.library_path, settings.new_catalog_path.strip())
+
         # Process assets
-        return self.add_to_existing(context, filepath, data_blocks, data_type, main_data_names)
+        return self.add_to_existing(context, filepath, data_blocks, data_type, main_data_names, catalog_uuid=catalog_uuid)
 
 
 class QP_OT_open_asset_list(Operator):
