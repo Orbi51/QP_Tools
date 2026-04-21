@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.2.4",
-        "changelog": "- Quick Asset Library: save assets to a new catalog directly from the save panel",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.2.4/QP_Tools_V2.2.4.zip"
+        "version": "2.2.5",
+        "changelog": "- Fix SSL certificate verification error on Windows — the updater could fail with CERTIFICATE_VERIFY_FAILED on some systems where Blender's bundled Python cannot access the Windows certificate store",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.2.5/QP_Tools_V2.2.5.zip"
     }
 }

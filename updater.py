@@ -1,6 +1,7 @@
 import bpy
 import urllib.request
 import urllib.error
+import ssl
 import json
 import threading
 import tempfile
@@ -9,6 +10,40 @@ import zipfile
 import os
 import tomllib
 from pathlib import Path
+
+
+def _make_ssl_context():
+    try:
+        return ssl.create_default_context()
+    except Exception:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
+def _urlopen(req, timeout=10):
+    try:
+        return urllib.request.urlopen(req, context=_make_ssl_context(), timeout=timeout)
+    except ssl.SSLError:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return urllib.request.urlopen(req, context=ctx, timeout=timeout)
+
+def _download_to_file(url, dest_path, progress_callback=None):
+    req = urllib.request.Request(url, headers={"User-Agent": "QP_Tools-Updater"})
+    with _urlopen(req, timeout=120) as resp:
+        total_size = int(resp.headers.get('Content-Length', 0))
+        downloaded = 0
+        with open(dest_path, 'wb') as f:
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                f.write(chunk)
+                downloaded += len(chunk)
+                if progress_callback and total_size > 0:
+                    progress_callback(min(downloaded / total_size, 1.0))
 
 
 # --------------- Constants ---------------
@@ -96,7 +131,7 @@ def _do_check():
             MANIFEST_URL,
             headers={"User-Agent": "QP_Tools-Updater"}
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode('utf-8'))
 
         persistent = _load_updater_state()
@@ -255,13 +290,10 @@ class QP_OT_update_addon(bpy.types.Operator):
             tmp_fd, tmp_path = tempfile.mkstemp(suffix=".zip", prefix="qp_tools_addon_")
             os.close(tmp_fd)
 
-            def _progress(block_count, block_size, total_size):
-                if total_size > 0:
-                    _update_state["download_progress"] = min(
-                        block_count * block_size / total_size, 1.0
-                    )
-
-            urllib.request.urlretrieve(url, tmp_path, reporthook=_progress)
+            _download_to_file(
+                url, tmp_path,
+                lambda p: _update_state.update({"download_progress": p})
+            )
             _update_state["download_progress"] = 1.0
 
             def _install_callback():
