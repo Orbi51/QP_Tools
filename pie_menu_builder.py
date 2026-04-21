@@ -2836,6 +2836,7 @@ def draw_pie_menu_editor(layout, pie_menu, context):
     # Keymap settings - use native Blender keymap UI
     keymap_box = main_box.box()
     keymap_box.label(text="Shortcut", icon='KEYINGSET')
+    keymap_box.prop(pie_menu, "keymap_space")
 
     # Try to find or create the keymap item
     wm = context.window_manager
