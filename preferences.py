@@ -80,7 +80,7 @@ class QP_OT_toggle_module(Operator):
             "qp_tools_pie_menu_enabled": "Access tools and assets via a pie menu",
             "quick_asset_library_enabled": "Quickly create and manage asset libraries",
             "pie_menu_builder_enabled": "Create custom pie menus with context-sensitive actions",
-            "aov_manager_enabled": "Automatically sync AOV Output nodes to view layer AOVs"
+            "aov_manager_enabled": "Adds a Sync AOVs button to the View Layer Shader AOV panel"
         }
         return module_tooltips.get(properties.module_prop, "Toggle the module on/off")
     
@@ -1095,7 +1095,7 @@ class QP_Tools_Preferences(AddonPreferences):
     # AOV Manager properties
     aov_manager_enabled: BoolProperty(
         name="AOV Manager",
-        description="Automatically sync AOV Output nodes to view layer AOVs",
+        description="Show the Sync AOVs button in the View Layer Shader AOV panel",
         default=True,
         update=update_module_state
     )
