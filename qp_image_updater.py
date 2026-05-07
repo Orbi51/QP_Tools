@@ -106,11 +106,10 @@ class QP_ImageTextureUpdater:
     @classmethod
     def make_node_tree_unique(cls, node):
         """
-        Make a node group's tree unique if it has multiple users.
-        Prevents affecting other instances of the same node group.
+        Make a node group's tree unique if it has multiple users or is library-linked.
+        Copying a library-linked tree produces a local, editable datablock.
         """
-        if node.node_tree and node.node_tree.users > 1:
-            # Create a copy of the node tree
+        if node.node_tree and (node.node_tree.users > 1 or node.node_tree.library is not None):
             original_tree = node.node_tree
             new_tree = original_tree.copy()
             node.node_tree = new_tree
@@ -134,7 +133,7 @@ class QP_ImageTextureUpdater:
             if fresh_node is None:
                 return None, None
 
-            if fresh_node.node_tree and fresh_node.node_tree.users > 1:
+            if fresh_node.node_tree and (fresh_node.node_tree.users > 1 or fresh_node.node_tree.library is not None):
                 new_tree = fresh_node.node_tree.copy()
                 fresh_node.node_tree = new_tree
                 cls.log(f"Made parent group unique: {fresh_node.name}")
@@ -144,6 +143,25 @@ class QP_ImageTextureUpdater:
 
         fresh_trackable = current_tree.nodes.get(trackable_node.name)
         return fresh_chain, fresh_trackable
+
+    @classmethod
+    def get_actual_internal_image(cls, node_group, visited=None):
+        """Return the image from the first TEX_IMAGE found inside node_group (recursive)."""
+        if not node_group.node_tree:
+            return None
+        if visited is None:
+            visited = set()
+        if id(node_group.node_tree) in visited:
+            return None
+        visited.add(id(node_group.node_tree))
+        for node in node_group.node_tree.nodes:
+            if node.type == 'TEX_IMAGE':
+                return node.image
+            if node.type == 'GROUP' and node.node_tree:
+                img = cls.get_actual_internal_image(node, visited)
+                if img is not None:
+                    return img
+        return None
 
     @classmethod
     def update_internal_image_texture(cls, node_group, target_image, depth=0, visited=None):
@@ -334,37 +352,41 @@ class QP_ImageTextureUpdater:
             return
 
         current_image = cls.get_connected_image(node, "Image", parent_chain)
-        
-        # Get last known state from metadata
         last_image = node.qp_node_info.current_image
-        
-        # Check if image changed
-        if current_image != last_image:
+
+        # Also check whether the actual internal TEX_IMAGE node is in sync.
+        # Metadata can record the correct socket image while the internal node
+        # still holds a stale datablock (e.g. after a file load or a manual edit).
+        internal_image = cls.get_actual_internal_image(node)
+        internal_stale = (internal_image != current_image)
+
+        if current_image == last_image and not internal_stale:
+            return
+
+        if internal_stale and current_image == last_image:
+            cls.log(f"Stale internal state on {node.name} in {material.name} — forcing resync")
+            cls.log(f"  Internal has: {internal_image.name if internal_image else 'None'}")
+            cls.log(f"  Socket says:  {current_image.name if current_image else 'None'}")
+        else:
             path_info = f" at {node_path}" if node_path else ""
             cls.log(f"Image changed on {node.name}{path_info} in {material.name}")
             cls.log(f"  Old: {last_image.name if last_image else 'None'}")
             cls.log(f"  New: {current_image.name if current_image else 'None'}")
-            
-            # Ensure all parent groups are unique first (outermost to innermost),
-            # then get fresh node references after any copies
-            if parent_chain:
-                fresh_chain, fresh_node = cls.ensure_chain_unique(material, parent_chain, node)
-                if fresh_node is not None:
-                    node = fresh_node
 
-            # Make trackable node's own tree unique
-            was_made_unique = cls.make_node_tree_unique(node)
+        # Ensure all parent groups are unique first (outermost to innermost),
+        # then get fresh node references after any copies
+        if parent_chain:
+            fresh_chain, fresh_node = cls.ensure_chain_unique(material, parent_chain, node)
+            if fresh_node is not None:
+                node = fresh_node
 
-            if was_made_unique:
-                cls.log(f"  └─ Made node tree unique (was shared)")
+        was_made_unique = cls.make_node_tree_unique(node)
+        if was_made_unique:
+            cls.log(f"  └─ Made node tree unique (was shared)")
 
-            # Update internal Image Texture nodes recursively
-            cls.update_internal_image_texture(node, current_image)
-
-            cls.propagate_to_downstream_groups(node, current_image)
-
-            # Store new state on the (possibly refreshed) node
-            node.qp_node_info.current_image = current_image
+        cls.update_internal_image_texture(node, current_image)
+        cls.propagate_to_downstream_groups(node, current_image)
+        node.qp_node_info.current_image = current_image
 
 
 # ============================================================================
