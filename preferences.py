@@ -1100,6 +1100,14 @@ class QP_Tools_Preferences(AddonPreferences):
         update=update_module_state
     )
 
+    # Global Controls properties
+    global_controls_enabled: BoolProperty(
+        name="Global Controls",
+        description="Control output socket values of CTRL_ node groups from the sidebar",
+        default=True,
+        update=update_module_state
+    )
+
     quick_asset_library_path: StringProperty(
         name="Default Library Path",
         description="Default path for the asset library",

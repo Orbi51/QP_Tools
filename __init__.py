@@ -41,6 +41,7 @@ modules = [
     "asset_browser_pie",
     "pie_menu_builder",
     "quick_asset_library",
+    "GlobalControls",
     "qp_tools_panel",
 ]
 
