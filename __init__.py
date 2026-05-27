@@ -4,7 +4,7 @@ bl_info = {
     "author": "Quentin Pointillart",
     "description": "Set of tools to speed up time consuming tasks",
     "blender": (4, 2, 0),
-    "version": (2, 2, 6),
+    "version": (2, 4, 0),
     "location": "Right-click menu", 
     "category": "Node, Mesh" 
 }
