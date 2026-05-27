@@ -80,7 +80,8 @@ class QP_OT_toggle_module(Operator):
             "qp_tools_pie_menu_enabled": "Access tools and assets via a pie menu",
             "quick_asset_library_enabled": "Quickly create and manage asset libraries",
             "pie_menu_builder_enabled": "Create custom pie menus with context-sensitive actions",
-            "aov_manager_enabled": "Adds a Sync AOVs button to the View Layer Shader AOV panel"
+            "aov_manager_enabled": "Adds a Sync AOVs button to the View Layer Shader AOV panel",
+            "global_controls_enabled": "Control CTRL_ node group output socket values from the sidebar"
         }
         return module_tooltips.get(properties.module_prop, "Toggle the module on/off")
     
@@ -1205,6 +1206,7 @@ class QP_Tools_Preferences(AddonPreferences):
             draw_toggle_button(col2, "lattice_setup_enabled", "Lattice Setup")
             draw_toggle_button(col2, "materiallist_enabled", "Material List")
             draw_toggle_button(col2, "cleanup_enabled", "CleanUp")
+            draw_toggle_button(col2, "global_controls_enabled", "Global Controls")
 
             # Node editor modules
             col1 = grid.column(align=True)
