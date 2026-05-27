@@ -829,7 +829,7 @@ def _global_controls_poll(context):
             hasattr(gc, "module_enabled") and gc.module_enabled)
 
 
-def _draw_global_controls_body(layout):
+def _draw_global_controls_body(layout, context):
     """Shared draw logic used by both the 3D View and Node Editor panels."""
     ctrl_groups = [ng for ng in bpy.data.node_groups if ng.name.startswith("CTRL_")]
     base_names = {_ctrl_base_name(ng.name) for ng in ctrl_groups}
@@ -887,8 +887,22 @@ def _draw_global_controls_body(layout):
                 box.label(text="No output sockets", icon='INFO')
                 continue
 
+            gc = sys.modules.get(f"{__package__}.GlobalControls")
+            scene = context.scene
+            needs_init = False
             for socket_name, inp in sockets:
-                box.prop(inp, "default_value", text=socket_name)
+                stype = getattr(inp, 'type', 'VALUE')
+                if gc and stype in gc._SOCKET_TYPE_PROPS and hasattr(scene, 'qp_ctrl_sockets'):
+                    entry = scene.qp_ctrl_sockets.get(f"{base_name}||{socket_name}")
+                    if entry is not None:
+                        box.prop(entry, gc._entry_prop(stype), text=socket_name)
+                    else:
+                        box.prop(inp, "default_value", text=socket_name)
+                        needs_init = True
+                else:
+                    box.prop(inp, "default_value", text=socket_name)
+            if needs_init and gc and not bpy.app.timers.is_registered(gc.ensure_scene_entries):
+                bpy.app.timers.register(gc.ensure_scene_entries, first_interval=0.0)
 
 
 # ── Create Control Group operator ────────────────────────────────────────────
@@ -983,7 +997,7 @@ class QP_PT_global_controls_panel(Panel):
         return _global_controls_poll(context)
 
     def draw(self, context):
-        _draw_global_controls_body(self.layout)
+        _draw_global_controls_body(self.layout, context)
 
 
 # ── Node Editor Global Controls panel ────────────────────────────────────────
@@ -1004,7 +1018,7 @@ class QP_PT_node_global_controls_panel(Panel):
     def draw(self, context):
         layout = self.layout
         layout.operator("qp.create_ctrl_group", icon='ADD')
-        _draw_global_controls_body(layout)
+        _draw_global_controls_body(layout, context)
 
 
 def register():
