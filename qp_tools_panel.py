@@ -940,6 +940,12 @@ class QP_OT_create_ctrl_group(Operator):
         # Create the node group data block
         ng = bpy.data.node_groups.new(full_name, tree_type)
 
+        # Add Group Input and Group Output nodes inside the new group
+        gi = ng.nodes.new('NodeGroupInput')
+        gi.location = (-300, 0)
+        go = ng.nodes.new('NodeGroupOutput')
+        go.location = (300, 0)
+
         # Add a Group node in the active node tree
         group_node_type = _NODE_GROUP_TYPES.get(tree_type, 'ShaderNodeGroup')
         group_node = edit_tree.nodes.new(group_node_type)
