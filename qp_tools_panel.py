@@ -508,12 +508,15 @@ class QP_PT_node_main_panel(Panel):
     
     @classmethod
     def poll(cls, context):
-        # Show panel if QuickAsset module is enabled
         quick_asset_module = sys.modules.get(f"{__package__}.quick_asset_library")
-        return (module_enabled and 
-                quick_asset_module and 
-                hasattr(quick_asset_module, "module_enabled") and 
-                quick_asset_module.module_enabled)
+        quickasset_enabled = (quick_asset_module and
+                              hasattr(quick_asset_module, "module_enabled") and
+                              quick_asset_module.module_enabled)
+        global_controls_module = sys.modules.get(f"{__package__}.GlobalControls")
+        globalcontrols_enabled = (global_controls_module and
+                                  hasattr(global_controls_module, "module_enabled") and
+                                  global_controls_module.module_enabled)
+        return module_enabled and (quickasset_enabled or globalcontrols_enabled)
     
     def draw(self, context):
         layout = self.layout
@@ -819,6 +822,147 @@ class QP_OT_toggle_ctrl_group(Operator):
         return {'FINISHED'}
 
 
+def _global_controls_poll(context):
+    """Shared poll check for both Global Controls panels."""
+    gc = sys.modules.get(f"{__package__}.GlobalControls")
+    return (module_enabled and gc and
+            hasattr(gc, "module_enabled") and gc.module_enabled)
+
+
+def _draw_global_controls_body(layout):
+    """Shared draw logic used by both the 3D View and Node Editor panels."""
+    ctrl_groups = [ng for ng in bpy.data.node_groups if ng.name.startswith("CTRL_")]
+    base_names = {_ctrl_base_name(ng.name) for ng in ctrl_groups}
+    all_expanded = all(_ctrl_group_expanded.get(b, True) for b in base_names) if base_names else True
+    collapse_icon = 'TRIA_UP' if all_expanded else 'TRIA_DOWN'
+
+    row = layout.row(align=True)
+    row.scale_y = 1.2
+    row.operator("qp.refresh_ctrl_groups", icon='FILE_REFRESH')
+    row.operator("qp.toggle_all_ctrl_groups", text="", icon=collapse_icon)
+
+    if not ctrl_groups:
+        layout.label(text="No CTRL_ node groups found", icon='INFO')
+        return
+
+    clusters = {}
+    for ng in sorted(ctrl_groups, key=lambda x: x.name):
+        clusters.setdefault(_ctrl_base_name(ng.name), []).append(ng)
+
+    def cluster_type(ng_list):
+        types = {ng.bl_idname for ng in ng_list}
+        return next(iter(types)) if len(types) == 1 else 'MIXED'
+
+    type_buckets = {}
+    for base, ng_list in clusters.items():
+        type_buckets.setdefault(cluster_type(ng_list), []).append((base, ng_list))
+
+    show_headers = len(type_buckets) > 1
+
+    for ct in _TYPE_ORDER:
+        if ct not in type_buckets:
+            continue
+
+        if show_headers:
+            layout.separator(factor=0.5)
+            layout.label(text=_TYPE_LABELS[ct], icon=_TYPE_ICONS[ct])
+
+        for base_name, ng_list in sorted(type_buckets[ct]):
+            is_expanded = _ctrl_group_expanded.get(base_name, True)
+            ng_icon = _TYPE_ICONS[ct]
+
+            box = layout.box()
+            hrow = box.row()
+            hrow.alignment = 'LEFT'
+            tria_icon = 'TRIA_DOWN' if is_expanded else 'TRIA_RIGHT'
+            hrow.label(text="", icon=ng_icon)
+            op = hrow.operator("qp.toggle_ctrl_group", text=base_name, icon=tria_icon, emboss=False)
+            op.group_name = base_name
+
+            if not is_expanded:
+                continue
+
+            sockets = _union_sockets(ng_list)
+            if not sockets:
+                box.label(text="No output sockets", icon='INFO')
+                continue
+
+            for socket_name, inp in sockets:
+                box.prop(inp, "default_value", text=socket_name)
+
+
+# ── Create Control Group operator ────────────────────────────────────────────
+
+_NODE_GROUP_TYPES = {
+    'ShaderNodeTree':     'ShaderNodeGroup',
+    'GeometryNodeTree':   'GeometryNodeGroup',
+    'CompositorNodeTree': 'CompositorNodeGroup',
+}
+
+
+class QP_OT_create_ctrl_group(Operator):
+    bl_idname = "qp.create_ctrl_group"
+    bl_label = "Create Control Group"
+    bl_description = "Create a new CTRL_ node group and place it in the current node tree"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    name: StringProperty(name="Name", default="")
+
+    @classmethod
+    def poll(cls, context):
+        return (context.space_data is not None and
+                context.space_data.type == 'NODE_EDITOR' and
+                context.space_data.edit_tree is not None)
+
+    def invoke(self, context, event):
+        self.name = ""
+        return context.window_manager.invoke_props_dialog(self, width=300)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        layout.prop(self, "name")
+        preview = f"CTRL_{self.name.strip()}" if self.name.strip() else "CTRL_…"
+        layout.label(text=f"Will create: {preview}", icon='INFO')
+
+    def execute(self, context):
+        name = self.name.strip()
+        if not name:
+            self.report({'WARNING'}, "Please enter a name")
+            return {'CANCELLED'}
+
+        full_name = f"CTRL_{name}"
+        space = context.space_data
+        tree_type = space.tree_type
+        edit_tree = space.edit_tree
+
+        # Create the node group data block
+        ng = bpy.data.node_groups.new(full_name, tree_type)
+
+        # Add a Group node in the active node tree
+        group_node_type = _NODE_GROUP_TYPES.get(tree_type, 'ShaderNodeGroup')
+        group_node = edit_tree.nodes.new(group_node_type)
+        group_node.node_tree = ng
+
+        # Place at the visible centre of the node editor
+        region = next((r for r in context.area.regions if r.type == 'WINDOW'), None)
+        if region:
+            cx, cy = region.view2d.region_to_view(region.width / 2, region.height / 2)
+            group_node.location = (cx, cy)
+
+        # Make it the only selected / active node
+        for node in edit_tree.nodes:
+            node.select = False
+        group_node.select = True
+        edit_tree.nodes.active = group_node
+
+        self.report({'INFO'}, f"Created '{ng.name}'")
+        return {'FINISHED'}
+
+
+# ── 3D View Global Controls panel ────────────────────────────────────────────
+
 class QP_PT_global_controls_panel(Panel):
     """Global Controls Panel in QPTools"""
     bl_space_type = 'VIEW_3D'
@@ -830,76 +974,31 @@ class QP_PT_global_controls_panel(Panel):
 
     @classmethod
     def poll(cls, context):
-        global_controls_module = sys.modules.get(f"{__package__}.GlobalControls")
-        return (module_enabled and
-                global_controls_module and
-                hasattr(global_controls_module, "module_enabled") and
-                global_controls_module.module_enabled)
+        return _global_controls_poll(context)
+
+    def draw(self, context):
+        _draw_global_controls_body(self.layout)
+
+
+# ── Node Editor Global Controls panel ────────────────────────────────────────
+
+class QP_PT_node_global_controls_panel(Panel):
+    """Global Controls Panel in Node Editor"""
+    bl_space_type = 'NODE_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = 'QPTools'
+    bl_label = "Global Controls"
+    bl_parent_id = "QP_PT_node_main_panel"
+    bl_idname = "QP_PT_node_global_controls_panel"
+
+    @classmethod
+    def poll(cls, context):
+        return _global_controls_poll(context)
 
     def draw(self, context):
         layout = self.layout
-
-        ctrl_groups = [ng for ng in bpy.data.node_groups if ng.name.startswith("CTRL_")]
-        base_names = {_ctrl_base_name(ng.name) for ng in ctrl_groups}
-        all_expanded = all(_ctrl_group_expanded.get(b, True) for b in base_names) if base_names else True
-        collapse_icon = 'TRIA_UP' if all_expanded else 'TRIA_DOWN'
-
-        row = layout.row(align=True)
-        row.scale_y = 1.2
-        row.operator("qp.refresh_ctrl_groups", icon='FILE_REFRESH')
-        row.operator("qp.toggle_all_ctrl_groups", text="", icon=collapse_icon)
-
-        if not ctrl_groups:
-            layout.label(text="No CTRL_ node groups found", icon='INFO')
-            return
-
-        # Build clusters: base_name → [ng, ...]
-        clusters = {}
-        for ng in sorted(ctrl_groups, key=lambda x: x.name):
-            clusters.setdefault(_ctrl_base_name(ng.name), []).append(ng)
-
-        # Determine type for each cluster (MIXED if members span types)
-        def cluster_type(ng_list):
-            types = {ng.bl_idname for ng in ng_list}
-            return next(iter(types)) if len(types) == 1 else 'MIXED'
-
-        # Sort clusters into type buckets
-        type_buckets = {}
-        for base, ng_list in clusters.items():
-            type_buckets.setdefault(cluster_type(ng_list), []).append((base, ng_list))
-
-        show_headers = len(type_buckets) > 1
-
-        for ct in _TYPE_ORDER:
-            if ct not in type_buckets:
-                continue
-
-            if show_headers:
-                layout.separator(factor=0.5)
-                layout.label(text=_TYPE_LABELS[ct], icon=_TYPE_ICONS[ct])
-
-            for base_name, ng_list in sorted(type_buckets[ct]):
-                is_expanded = _ctrl_group_expanded.get(base_name, True)
-                ng_icon = _TYPE_ICONS[ct]
-
-                box = layout.box()
-                hrow = box.row()
-                hrow.alignment = 'LEFT'
-                tria_icon = 'TRIA_DOWN' if is_expanded else 'TRIA_RIGHT'
-                hrow.label(text="", icon=ng_icon)
-                op = hrow.operator("qp.toggle_ctrl_group", text=base_name, icon=tria_icon, emboss=False)
-                op.group_name = base_name
-
-                if not is_expanded:
-                    continue
-
-                sockets = _union_sockets(ng_list)
-                if not sockets:
-                    box.label(text="No output sockets", icon='INFO')
-                    continue
-
-                for socket_name, inp in sockets:
-                    box.prop(inp, "default_value", text=socket_name)
+        layout.operator("qp.create_ctrl_group", icon='ADD')
+        _draw_global_controls_body(layout)
 
 
 def register():
@@ -918,7 +1017,9 @@ def register():
     ModuleManager.safe_register_class(QP_PT_compositor_asset_panel)
     ModuleManager.safe_register_class(QP_OT_toggle_all_ctrl_groups)
     ModuleManager.safe_register_class(QP_OT_toggle_ctrl_group)
+    ModuleManager.safe_register_class(QP_OT_create_ctrl_group)
     ModuleManager.safe_register_class(QP_PT_global_controls_panel)
+    ModuleManager.safe_register_class(QP_PT_node_global_controls_panel)
 
     # Add a handler to redraw areas when switching editors
     if hasattr(bpy.app, 'handlers'):
@@ -939,7 +1040,9 @@ def unregister():
         return
     
     # Unregister classes in reverse order
+    ModuleManager.safe_unregister_class(QP_PT_node_global_controls_panel)
     ModuleManager.safe_unregister_class(QP_PT_global_controls_panel)
+    ModuleManager.safe_unregister_class(QP_OT_create_ctrl_group)
     ModuleManager.safe_unregister_class(QP_OT_toggle_ctrl_group)
     ModuleManager.safe_unregister_class(QP_OT_toggle_all_ctrl_groups)
     ModuleManager.safe_unregister_class(QP_PT_compositor_asset_panel)
