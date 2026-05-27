@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.4.0",
-        "changelog": "- Add Global Controls module: control CTRL_ node group output socket values from the 3D View and Node Editor sidebars\n- Collapsible per-group sections with collapse/expand-all button\n- Type-based icons and grouping, duplicate group merging with sibling sync\n- Create Control Group button in Node Editor panels\n- Pre-render handler to push CTRL_ values into the dependency graph",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.4.0/QP_Tools_V2.4.0.zip"
+        "version": "2.4.1",
+        "changelog": "- Global Controls: store socket values in Scene properties so the panel is always editable, even for linked node groups\n- Push values from scene to CTRL_ node groups on change, file load, and before render\n- Auto-cleanup of stale scene entries when a CTRL_ node group is deleted",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.4.1/QP_Tools_V2.4.1.zip"
     }
 }
