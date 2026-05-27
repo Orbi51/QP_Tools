@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.2.6",
-        "changelog": "- Replace AOV auto-sync with a manual Sync AOVs button in the View Layer Shader AOV panel\n- Fix crash from unguarded RNA pointer access in the AOV manager timer callback",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.2.6/QP_Tools_V2.2.6.zip"
+        "version": "2.4.0",
+        "changelog": "- Add Global Controls module: control CTRL_ node group output socket values from the 3D View and Node Editor sidebars\n- Collapsible per-group sections with collapse/expand-all button\n- Type-based icons and grouping, duplicate group merging with sibling sync\n- Create Control Group button in Node Editor panels\n- Pre-render handler to push CTRL_ values into the dependency graph",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.4.0/QP_Tools_V2.4.0.zip"
     }
 }
