@@ -9,7 +9,8 @@ A modular toolkit for Blender artists who want to move faster. Each tool solves 
 ## Features
 
 ### 🎛️ Global Controls
-Control the output values of any node group named `CTRL_*` directly from the sidebar — no need to dig into the node editor. Sliders, color pickers, checkboxes, and vector inputs all appear automatically based on what sockets the group exposes. Groups with the same base name are merged into one section and kept in sync across duplicates. Works in both the 3D View and the Node Editor.
+Control the output values of any node group named `CTRL_*` directly from the sidebar — no need to dig into the node editor. Sliders, color pickers, checkboxes, and angle/factor/vector inputs all appear automatically with the correct widget type, units, and min/max range based on what sockets the group exposes. Works in both the 3D View and the Node Editor.
+**Linked library support** — When CTRL_ groups are linked from an external `.blend`, use the **Make Local** button (library icon) in the panel header to create local editable copies. Local copies persist across save/reload with a fake user, and the sidebar controls become fully interactive.
 
 ### 📦 Quick Asset Library
 Manage your assets easily. Add, update, override assets to the selected library, set the correct catalog or create a new one then click Add to Library. This helps keep your libraries and .blend files clean, well organized and up to date.
