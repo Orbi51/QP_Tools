@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.4.1",
-        "changelog": "- Global Controls: store socket values in Scene properties so the panel is always editable, even for linked node groups\n- Push values from scene to CTRL_ node groups on change, file load, and before render\n- Auto-cleanup of stale scene entries when a CTRL_ node group is deleted",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.4.1/QP_Tools_V2.4.1.zip"
+        "version": "2.4.2",
+        "changelog": "- Global Controls: msgbus subscriptions for real-time sidebar updates without scene object dependencies\n- Make Local operator to create editable local copies of linked CTRL_ node groups\n- Refresh All detects socket structure changes in linked libraries and automatically remakes local copies\n- Sibling sync only calls update_tag() on groups that were actually written to, preventing feedback loops",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.4.2/QP_Tools_V2.4.2.zip"
     }
 }

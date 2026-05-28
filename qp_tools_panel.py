@@ -836,9 +836,13 @@ def _draw_global_controls_body(layout, context):
     all_expanded = all(_ctrl_group_expanded.get(b, True) for b in base_names) if base_names else True
     collapse_icon = 'TRIA_UP' if all_expanded else 'TRIA_DOWN'
 
+    has_linked = any(ng.library is not None for ng in ctrl_groups)
+
     row = layout.row(align=True)
     row.scale_y = 1.2
     row.operator("qp.refresh_ctrl_groups", icon='FILE_REFRESH')
+    if has_linked:
+        row.operator("qp.make_ctrl_local", text="", icon='LIBRARY_DATA_DIRECT')
     row.operator("qp.toggle_all_ctrl_groups", text="", icon=collapse_icon)
 
     if not ctrl_groups:
@@ -887,22 +891,8 @@ def _draw_global_controls_body(layout, context):
                 box.label(text="No output sockets", icon='INFO')
                 continue
 
-            gc = sys.modules.get(f"{__package__}.GlobalControls")
-            scene = context.scene
-            needs_init = False
             for socket_name, inp in sockets:
-                stype = getattr(inp, 'type', 'VALUE')
-                if gc and stype in gc._SOCKET_TYPE_PROPS and hasattr(scene, 'qp_ctrl_sockets'):
-                    entry = scene.qp_ctrl_sockets.get(f"{base_name}||{socket_name}")
-                    if entry is not None:
-                        box.prop(entry, gc._entry_prop(stype), text=socket_name)
-                    else:
-                        box.prop(inp, "default_value", text=socket_name)
-                        needs_init = True
-                else:
-                    box.prop(inp, "default_value", text=socket_name)
-            if needs_init and gc and not bpy.app.timers.is_registered(gc.ensure_scene_entries):
-                bpy.app.timers.register(gc.ensure_scene_entries, first_interval=0.0)
+                box.prop(inp, "default_value", text=socket_name)
 
 
 # ── Create Control Group operator ────────────────────────────────────────────
