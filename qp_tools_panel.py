@@ -15,6 +15,7 @@ module_enabled = True
 
 # Expand state for Global Controls node group sections (not persistent)
 _ctrl_group_expanded = {}
+_ctrl_panel_expanded = {}  # keyed by "base_name\x00panel_name"
 _is_registered = False
 
 # ── Global Controls helpers ──────────────────────────────────────────────────
@@ -872,6 +873,18 @@ class QP_OT_toggle_ctrl_group(Operator):
         return {'FINISHED'}
 
 
+class QP_OT_toggle_ctrl_panel(Operator):
+    bl_idname = "qp.toggle_ctrl_panel"
+    bl_label = "Toggle CTRL Panel"
+    bl_options = {'INTERNAL'}
+
+    key: StringProperty()
+
+    def execute(self, context):
+        _ctrl_panel_expanded[self.key] = not _ctrl_panel_expanded.get(self.key, True)
+        return {'FINISHED'}
+
+
 def _global_controls_poll(context):
     """Shared poll check for both Global Controls panels."""
     gc = sys.modules.get(f"{__package__}.GlobalControls")
@@ -944,7 +957,15 @@ def _draw_global_controls_body(layout, context):
             for panel_name, sockets in groups:
                 if panel_name is not None:
                     sub = box.box()
-                    sub.label(text=panel_name)
+                    key = f"{base_name}\x00{panel_name}"
+                    is_panel_expanded = _ctrl_panel_expanded.get(key, True)
+                    tria = 'TRIA_DOWN' if is_panel_expanded else 'TRIA_RIGHT'
+                    prow = sub.row()
+                    prow.alignment = 'LEFT'
+                    op = prow.operator("qp.toggle_ctrl_panel", text=panel_name, icon=tria, emboss=False)
+                    op.key = key
+                    if not is_panel_expanded:
+                        continue
                 else:
                     sub = box
                 for socket_name, inp in sockets:
@@ -1083,6 +1104,7 @@ def register():
     ModuleManager.safe_register_class(QP_PT_compositor_asset_panel)
     ModuleManager.safe_register_class(QP_OT_toggle_all_ctrl_groups)
     ModuleManager.safe_register_class(QP_OT_toggle_ctrl_group)
+    ModuleManager.safe_register_class(QP_OT_toggle_ctrl_panel)
     ModuleManager.safe_register_class(QP_OT_create_ctrl_group)
     ModuleManager.safe_register_class(QP_PT_global_controls_panel)
     ModuleManager.safe_register_class(QP_PT_node_global_controls_panel)
@@ -1109,6 +1131,7 @@ def unregister():
     ModuleManager.safe_unregister_class(QP_PT_node_global_controls_panel)
     ModuleManager.safe_unregister_class(QP_PT_global_controls_panel)
     ModuleManager.safe_unregister_class(QP_OT_create_ctrl_group)
+    ModuleManager.safe_unregister_class(QP_OT_toggle_ctrl_panel)
     ModuleManager.safe_unregister_class(QP_OT_toggle_ctrl_group)
     ModuleManager.safe_unregister_class(QP_OT_toggle_all_ctrl_groups)
     ModuleManager.safe_unregister_class(QP_PT_compositor_asset_panel)
