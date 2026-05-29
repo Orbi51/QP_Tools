@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.4.2",
-        "changelog": "- Global Controls: msgbus subscriptions for real-time sidebar updates without scene object dependencies\n- Make Local operator to create editable local copies of linked CTRL_ node groups\n- Refresh All detects socket structure changes in linked libraries and automatically remakes local copies\n- Sibling sync only calls update_tag() on groups that were actually written to, preventing feedback loops",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.4.2/QP_Tools_V2.4.2.zip"
+        "version": "2.4.3",
+        "changelog": "- Global Controls: group outputs by node group interface panels\n- Fix panel grouping for mixed-type CTRL_ clusters",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.4.3/QP_Tools_V2.4.3.zip"
     }
 }
