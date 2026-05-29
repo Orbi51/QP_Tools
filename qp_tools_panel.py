@@ -58,9 +58,8 @@ def _union_sockets(ng_list):
 
 def _interface_grouped_sockets(ng_list):
     """Returns [(panel_name_or_None, [(socket_name, inp), ...]), ...].
-    Panel structure comes from the primary group's interface; sockets matched by name
-    across all cluster siblings. Falls back to a single flat group if no panels exist."""
-    # Build union socket map (name → inp) from all groups
+    Walks every group's interface in order (first-group-wins per socket name) so
+    sockets from all cluster siblings get their correct panel assignment."""
     seen = set()
     socket_map = {}
     for ng in ng_list:
@@ -72,39 +71,29 @@ def _interface_grouped_sockets(ng_list):
     if not socket_map:
         return []
 
-    primary_ng = ng_list[0]
-    interface_items = list(primary_ng.interface.items_tree)
-
-    has_panels = any(item.item_type == 'PANEL' for item in interface_items)
-    if not has_panels:
-        return [(None, list(socket_map.items()))]
-
-    # Walk the interface tree in order to build panel → sockets mapping
+    seen_assigned = set()
     root_sockets = []
     panel_order = []
     panel_sockets = {}
 
-    for item in interface_items:
-        if item.item_type == 'PANEL':
-            if item.name not in panel_sockets:
-                panel_order.append(item.name)
-                panel_sockets[item.name] = []
-        elif item.item_type == 'SOCKET' and getattr(item, 'in_out', None) == 'OUTPUT':
+    for ng in ng_list:
+        for item in ng.interface.items_tree:
+            if item.item_type != 'SOCKET' or getattr(item, 'in_out', None) != 'OUTPUT':
+                continue
+            if item.name not in socket_map or item.name in seen_assigned:
+                continue
+            seen_assigned.add(item.name)
             parent_name = item.parent.name if (item.parent and item.parent.name) else None
-            if parent_name and parent_name in panel_sockets:
-                if item.name in socket_map:
-                    panel_sockets[parent_name].append((item.name, socket_map[item.name]))
+            if parent_name:
+                if parent_name not in panel_sockets:
+                    panel_order.append(parent_name)
+                    panel_sockets[parent_name] = []
+                panel_sockets[parent_name].append((item.name, socket_map[item.name]))
             else:
-                if item.name in socket_map:
-                    root_sockets.append((item.name, socket_map[item.name]))
+                root_sockets.append((item.name, socket_map[item.name]))
 
-    # Any sockets from siblings not present in primary's interface go at root level
-    primary_names = {
-        item.name for item in interface_items
-        if item.item_type == 'SOCKET' and getattr(item, 'in_out', None) == 'OUTPUT'
-    }
     for name, inp in socket_map.items():
-        if name not in primary_names:
+        if name not in seen_assigned:
             root_sockets.append((name, inp))
 
     groups = []
