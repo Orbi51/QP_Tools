@@ -15,7 +15,7 @@ module_enabled = True
 
 # Expand state for Global Controls node group sections (not persistent)
 _ctrl_group_expanded = {}
-_ctrl_panel_expanded = {}  # keyed by "base_name\x00panel_name"
+_ctrl_panel_expanded = {}  # keyed by "base_name||panel_name"
 _is_registered = False
 
 # ── Global Controls helpers ──────────────────────────────────────────────────
@@ -957,7 +957,7 @@ def _draw_global_controls_body(layout, context):
             for panel_name, sockets in groups:
                 if panel_name is not None:
                     sub = box.box()
-                    key = f"{base_name}\x00{panel_name}"
+                    key = f"{base_name}||{panel_name}"
                     is_panel_expanded = _ctrl_panel_expanded.get(key, True)
                     tria = 'TRIA_DOWN' if is_panel_expanded else 'TRIA_RIGHT'
                     prow = sub.row()
