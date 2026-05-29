@@ -55,6 +55,67 @@ def _union_sockets(ng_list):
                 result.append((name, inp))
     return result
 
+
+def _interface_grouped_sockets(ng_list):
+    """Returns [(panel_name_or_None, [(socket_name, inp), ...]), ...].
+    Panel structure comes from the primary group's interface; sockets matched by name
+    across all cluster siblings. Falls back to a single flat group if no panels exist."""
+    # Build union socket map (name → inp) from all groups
+    seen = set()
+    socket_map = {}
+    for ng in ng_list:
+        for name, inp in _group_output_inputs(ng):
+            if name not in seen:
+                seen.add(name)
+                socket_map[name] = inp
+
+    if not socket_map:
+        return []
+
+    primary_ng = ng_list[0]
+    interface_items = list(primary_ng.interface.items_tree)
+
+    has_panels = any(item.item_type == 'PANEL' for item in interface_items)
+    if not has_panels:
+        return [(None, list(socket_map.items()))]
+
+    # Walk the interface tree in order to build panel → sockets mapping
+    root_sockets = []
+    panel_order = []
+    panel_sockets = {}
+
+    for item in interface_items:
+        if item.item_type == 'PANEL':
+            if item.name not in panel_sockets:
+                panel_order.append(item.name)
+                panel_sockets[item.name] = []
+        elif item.item_type == 'SOCKET' and getattr(item, 'in_out', None) == 'OUTPUT':
+            parent_name = item.parent.name if (item.parent and item.parent.name) else None
+            if parent_name and parent_name in panel_sockets:
+                if item.name in socket_map:
+                    panel_sockets[parent_name].append((item.name, socket_map[item.name]))
+            else:
+                if item.name in socket_map:
+                    root_sockets.append((item.name, socket_map[item.name]))
+
+    # Any sockets from siblings not present in primary's interface go at root level
+    primary_names = {
+        item.name for item in interface_items
+        if item.item_type == 'SOCKET' and getattr(item, 'in_out', None) == 'OUTPUT'
+    }
+    for name, inp in socket_map.items():
+        if name not in primary_names:
+            root_sockets.append((name, inp))
+
+    groups = []
+    if root_sockets:
+        groups.append((None, root_sockets))
+    for panel_name in panel_order:
+        socks = panel_sockets.get(panel_name, [])
+        if socks:
+            groups.append((panel_name, socks))
+    return groups
+
 # Utility functions for QuickAsset module
 def get_temp_file_path():
     """Get the temporary status file path"""
@@ -886,13 +947,19 @@ def _draw_global_controls_body(layout, context):
             if not is_expanded:
                 continue
 
-            sockets = _union_sockets(ng_list)
-            if not sockets:
+            groups = _interface_grouped_sockets(ng_list)
+            if not groups:
                 box.label(text="No output sockets", icon='INFO')
                 continue
 
-            for socket_name, inp in sockets:
-                box.prop(inp, "default_value", text=socket_name)
+            for panel_name, sockets in groups:
+                if panel_name is not None:
+                    sub = box.box()
+                    sub.label(text=panel_name)
+                else:
+                    sub = box
+                for socket_name, inp in sockets:
+                    sub.prop(inp, "default_value", text=socket_name)
 
 
 # ── Create Control Group operator ────────────────────────────────────────────
