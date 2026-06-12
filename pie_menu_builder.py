@@ -950,6 +950,35 @@ class PieMenuKeymapManager:
             cls.register_pie_menu_keymap(pie_menu)
 
     @classmethod
+    def find_kmi(cls, pie_menu):
+        """Find the live keymap item for a pie menu.
+
+        Prefers the user keyconfig (where the native keymap UI stores
+        user-assigned shortcuts) and falls back to the addon keyconfig.
+        Returns (keymap, keymap_item) or (None, None). Read-only - does
+        not create entries.
+        """
+        if not pie_menu.id:
+            return None, None
+
+        wm = bpy.context.window_manager
+        km_name = cls.get_keymap_name(pie_menu.keymap_space)
+
+        for kc in (wm.keyconfigs.user, wm.keyconfigs.addon):
+            if not kc:
+                continue
+            km = kc.keymaps.get(km_name)
+            if not km:
+                continue
+            for kmi in km.keymap_items:
+                if (kmi.idname == "qp.call_custom_pie_menu" and
+                    hasattr(kmi.properties, 'menu_id') and
+                    kmi.properties.menu_id == pie_menu.id):
+                    return km, kmi
+
+        return None, None
+
+    @classmethod
     def ensure_addon_keymaps(cls):
         """Create addon keyconfig entries for all pie menus.
 
@@ -3004,18 +3033,34 @@ def _serialize_pie_menu(pie_menu):
             'context_match_mode': item.context_match_mode,
             'context_rules': rules,
         })
-    return {
-        'name': pie_menu.name,
-        'icon': pie_menu.icon,
-        'enabled': pie_menu.enabled,
-        'keymap': {
+    # The menu-opening shortcut is stored in the keyconfig keymap item
+    # (written by the native keymap UI), not in the keymap_* properties.
+    # Read the live keymap item so the assigned shortcut is exported.
+    km, kmi = PieMenuKeymapManager.find_kmi(pie_menu)
+    if kmi and kmi.type != 'NONE':
+        keymap = {
+            'key': kmi.type,
+            'ctrl': bool(kmi.ctrl),
+            'alt': bool(kmi.alt),
+            'shift': bool(kmi.shift),
+            'oskey': bool(kmi.oskey),
+            'space': pie_menu.keymap_space,
+        }
+    else:
+        keymap = {
             'key': pie_menu.keymap_key,
             'ctrl': pie_menu.keymap_ctrl,
             'alt': pie_menu.keymap_alt,
             'shift': pie_menu.keymap_shift,
             'oskey': pie_menu.keymap_oskey,
             'space': pie_menu.keymap_space,
-        },
+        }
+
+    return {
+        'name': pie_menu.name,
+        'icon': pie_menu.icon,
+        'enabled': pie_menu.enabled,
+        'keymap': keymap,
         'items': items,
     }
 
@@ -3028,7 +3073,13 @@ def _deserialize_pie_menu(data, target_menu):
     target_menu.enabled = data.get('enabled', True)
 
     km = data.get('keymap', {})
-    target_menu.keymap_key = km.get('key', 'NONE')
+    # keymap_key is a limited enum; the native keymap supports many more keys
+    # (numpad, mouse, etc.). The real binding is applied to kc_user separately,
+    # so silently skip values this property can't hold.
+    try:
+        target_menu.keymap_key = km.get('key', 'NONE')
+    except TypeError:
+        target_menu.keymap_key = 'NONE'
     target_menu.keymap_ctrl = km.get('ctrl', False)
     target_menu.keymap_alt = km.get('alt', False)
     target_menu.keymap_shift = km.get('shift', False)
@@ -3065,6 +3116,56 @@ def _deserialize_pie_menu(data, target_menu):
             new_rule.object_type_filter = rule_data.get('object_type_filter', 'MESH')
             new_rule.space_type_filter = rule_data.get('space_type_filter', 'VIEW_3D')
             new_rule.invert = rule_data.get('invert', False)
+
+
+def _apply_imported_shortcut(pie_menu, km_data):
+    """Write an imported menu-opening shortcut into the user keyconfig.
+
+    The native keymap UI stores assigned shortcuts in kc_user (not in the
+    keymap_* properties), and startup restores them from there. Mirror that
+    so imported shortcuts work immediately and persist across restarts.
+    """
+    key = km_data.get('key', 'NONE')
+    if not key or key == 'NONE':
+        return
+
+    wm = bpy.context.window_manager
+    kc_user = wm.keyconfigs.user
+    if not kc_user:
+        return
+
+    km_name = PieMenuKeymapManager.get_keymap_name(pie_menu.keymap_space)
+    space_type = pie_menu.keymap_space if pie_menu.keymap_space != 'EMPTY' else 'EMPTY'
+
+    km = kc_user.keymaps.get(km_name)
+    if not km:
+        try:
+            km = kc_user.keymaps.new(name=km_name, space_type=space_type)
+        except Exception:
+            return
+
+    kmi = None
+    for existing in km.keymap_items:
+        if (existing.idname == "qp.call_custom_pie_menu" and
+            hasattr(existing.properties, 'menu_id') and
+            existing.properties.menu_id == pie_menu.id):
+            kmi = existing
+            break
+
+    if kmi is None:
+        try:
+            kmi = km.keymap_items.new("qp.call_custom_pie_menu", key, 'PRESS')
+        except Exception:
+            return
+        kmi.properties.menu_id = pie_menu.id
+
+    kmi.type = key
+    kmi.value = 'PRESS'
+    kmi.ctrl = km_data.get('ctrl', False)
+    kmi.alt = km_data.get('alt', False)
+    kmi.shift = km_data.get('shift', False)
+    kmi.oskey = km_data.get('oskey', False)
+    kmi.active = True
 
 
 class QP_OT_ExportPieMenus(Operator, ExportHelper):
@@ -3151,7 +3252,10 @@ class QP_OT_ImportPieMenus(Operator, ImportHelper):
             new_menu = prefs.custom_pie_menus.add()
             _deserialize_pie_menu(menu_data, new_menu)
             register_dynamic_menu(new_menu)
-            PieMenuKeymapManager.refresh_pie_menu_keymap(new_menu)
+            # Ensure the addon keymap entry exists, then write the assigned
+            # shortcut into the user keyconfig so it works and persists.
+            PieMenuKeymapManager.ensure_addon_keymaps()
+            _apply_imported_shortcut(new_menu, menu_data.get('keymap', {}))
             imported += 1
 
         if imported:
