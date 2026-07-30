@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.4.3",
-        "changelog": "- Global Controls: group outputs by node group interface panels\n- Fix panel grouping for mixed-type CTRL_ clusters",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.4.3/QP_Tools_V2.4.3.zip"
+        "version": "2.4.4",
+        "changelog": "- Global Controls: re-subscribe socket handlers after undo/redo\n- Image Auto-Updater: fix updates skipped when a non-shader editor is open\n- Pie Menu Builder: keep the menu-opening shortcut on export/import\n- Global Controls: collapsible interface panel sub-boxes\n- Fixes the repeating update notification from v2.4.2/v2.4.3",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.4.4/QP_Tools_V2.4.4.zip"
     }
 }
