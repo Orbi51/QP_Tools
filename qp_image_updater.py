@@ -393,31 +393,46 @@ class QP_ImageTextureUpdater:
 # Handlers
 # ============================================================================
 
+# Re-entrancy guard: our own edits to node trees trigger further depsgraph
+# updates, so skip processing while an update pass is already running.
+_is_updating = False
+
+
 @persistent
 def update_on_depsgraph(scene, depsgraph):
-    """Handler that runs on depsgraph updates"""
+    """Handler that runs on depsgraph updates.
+
+    Reacts to the depsgraph's reported changes rather than the node-editor
+    context. The previous implementation inspected the first open node editor
+    and silently did nothing whenever it wasn't a shader editor (e.g. when a
+    Compositor or Geometry Nodes editor was open), which left tracked image
+    textures stale. Here we process whenever a shader node tree, material, or
+    image actually changed — compositor / geometry-node edits are ignored, and
+    every material is checked (cheap: process_material_nodes early-outs when no
+    trackable nodes are present).
+    """
+    global _is_updating
+    if _is_updating:
+        return
     try:
-        # Check if we're in node editing context
-        for area in bpy.context.screen.areas:
-            if area.type == 'NODE_EDITOR':
-                space = area.spaces.active
-                if space.tree_type == 'ShaderNodeTree' and space.node_tree:
-                    # Process only the active material's node tree
-                    for material in bpy.data.materials:
-                        if material.node_tree == space.node_tree:
-                            QP_ImageTextureUpdater.process_material_nodes(material)
-                            break
-                break
-        else:
-            # If no node editor is active, process all materials
-            for material in bpy.data.materials:
-                QP_ImageTextureUpdater.process_material_nodes(material)
+        relevant = any(
+            isinstance(update.id, (bpy.types.Material, bpy.types.Image, bpy.types.ShaderNodeTree))
+            for update in depsgraph.updates
+        )
+        if not relevant:
+            return
+
+        _is_updating = True
+        for material in bpy.data.materials:
+            QP_ImageTextureUpdater.process_material_nodes(material)
     except Exception as e:
         # Only show errors if console output is enabled
         if QP_ImageTextureUpdater.should_print():
             print(f"QP Image Updater Error: {e}")
             import traceback
             traceback.print_exc()
+    finally:
+        _is_updating = False
 
 
 @persistent
