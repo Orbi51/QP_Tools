@@ -204,6 +204,15 @@ def _ctrl_mark_dirty(scene, depsgraph):
 
 
 @bpy.app.handlers.persistent
+def _ctrl_resubscribe(*args):
+    """After undo/redo: socket RNA pointers are rebuilt, so msgbus
+    subscriptions go stale. Re-subscribe against the fresh sockets."""
+    if not bpy.app.timers.is_registered(_subscribe_ctrl_sockets):
+        bpy.app.timers.register(_subscribe_ctrl_sockets, first_interval=0.0)
+    return None
+
+
+@bpy.app.handlers.persistent
 def _ctrl_load_post(filepath, *args):
     """After file load: sync FROM local groups TO linked siblings only.
     Local values always win — linked groups revert to library state on load,
@@ -351,6 +360,10 @@ def register():
         bpy.app.handlers.depsgraph_update_post.append(_ctrl_mark_dirty)
     if _ctrl_load_post not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_ctrl_load_post)
+    if _ctrl_resubscribe not in bpy.app.handlers.undo_post:
+        bpy.app.handlers.undo_post.append(_ctrl_resubscribe)
+    if _ctrl_resubscribe not in bpy.app.handlers.redo_post:
+        bpy.app.handlers.redo_post.append(_ctrl_resubscribe)
     bpy.app.timers.register(_subscribe_ctrl_sockets, first_interval=0.1)
 
 
@@ -362,6 +375,10 @@ def unregister():
         bpy.app.handlers.depsgraph_update_post.remove(_ctrl_mark_dirty)
     if _ctrl_load_post in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_ctrl_load_post)
+    if _ctrl_resubscribe in bpy.app.handlers.undo_post:
+        bpy.app.handlers.undo_post.remove(_ctrl_resubscribe)
+    if _ctrl_resubscribe in bpy.app.handlers.redo_post:
+        bpy.app.handlers.redo_post.remove(_ctrl_resubscribe)
     ModuleManager.safe_unregister_class(QP_OT_refresh_ctrl_groups)
     ModuleManager.safe_unregister_class(QP_OT_make_ctrl_local)
 
