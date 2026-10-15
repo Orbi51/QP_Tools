@@ -23,6 +23,8 @@ _is_registered = False
 GAP_X, GAP_Y = 40, 24            # inside a cluster
 CL_GAP_X, CL_GAP_Y = 180, 120    # between clusters
 MIN_CLUSTER = 4
+FRAME_TOP, SUB_FRAME_TOP = 30.0, 38.0   # frame top above its top nodes; extra when the top row is a sub-frame (5.2)
+LANE_GAP = 26.0                        # lane above the frame / lane under it
 MAX_MERGED = 14
 FLOW_TYPES = {'GEOMETRY', 'SHADER'}
 SOCK_Y0, SOCK_DY = 33.5, 20.6    # first output socket below the node top, spacing (view units, measured in 5.2)
@@ -744,25 +746,49 @@ def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_fr
                     n.parent = sub_of.get(k, frame)
                 _set_loc(n, ox + lx, oy + ly)
             y -= h + CL_GAP_Y + 40
-    # links that skip cluster columns run along lanes above everything, through reroutes in the gaps
-    lane = 0
+    # links that skip cluster columns run on lanes above the clusters, through reroutes in the gaps. One lane per
+    # source socket (its far targets branch off it). Shortest jumps first, each lane takes the lowest height above the
+    # frames it crosses that no lane already uses over its stretch (it can slot under a higher lane once the lanes
+    # in between have ended), so short links hug the frames and only long ones run high.
     gapx = [colx[c] - CL_GAP_X * 0.5 for c in range(ncol)]
+    by_src = {}
     for l in list(tree.links):
         a, b_ = l.from_node.name, l.to_node.name
         if a not in cid or b_ not in cid or tree.nodes[a].bl_idname == 'NodeGroupInput':
             continue
-        ca, cb = ccol[cid[a]], ccol[cid[b_]]
-        if cb - ca <= 1:
-            continue
-        lane += 1
-        ly = 160 + 28 * lane
-        prev = l.from_socket
-        for c in range(ca + 1, cb + 1):
+        if ccol[cid[b_]] - ccol[cid[a]] > 1:
+            by_src.setdefault((a, l.from_socket.identifier), []).append(l)
+    jobs = []
+    for (a, sid), ls in by_src.items():
+        lo, hi = ccol[cid[a]] + 1, max(ccol[cid[l.to_node.name]] for l in ls)
+        jobs.append((hi - lo, lo, a, sid, ls))
+    ctop = [0.0] * ncol                                    # top of each column: its first cluster's frame
+    for c, ids in by_col.items():
+        if frames and len(clusters[ids[0]][1]) > 1:
+            ctop[c] = FRAME_TOP + (SUB_FRAME_TOP if blocks[ids[0]][3] else 0.0)
+    used = {}                                              # gap -> heights of the lanes through it
+    ys = set()
+    for _, lo, a, sid, ls in sorted(jobs, key=lambda j: (j[0], j[1], j[2], j[3])):
+        hi = max(ccol[cid[l.to_node.name]] for l in ls)
+        ly = max(ctop[c] + LANE_GAP for c in range(lo, hi))
+        while True:
+            hit = [y_ for g in range(lo, hi + 1) for y_ in used.get(g, ()) if abs(y_ - ly) < LANE_GAP - 0.1]
+            if not hit:
+                break
+            ly = max(hit) + LANE_GAP
+        for g in range(lo, hi + 1):
+            used.setdefault(g, []).append(ly)
+        ys.add(round(ly))
+        prev = next(o for o in tree.nodes[a].outputs if o.identifier == sid)
+        chain = {}
+        for c in range(lo, hi + 1):
             r = tree.nodes.new("NodeReroute")
             _set_loc(r, gapx[c], ly)
             tree.links.new(prev, r.inputs[0])
-            prev = r.outputs[0]
-        _relink(tree, l, prev)
+            prev = chain[c] = r.outputs[0]
+        for l in ls:
+            _relink(tree, l, chain[ccol[cid[l.to_node.name]]])
+    lane = len(ys)
     _thin_reroutes(tree)
     return {"clusters": len(clusters), "main": len(main), "lanes": lane}
 
