@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.5.0",
-        "changelog": "- New: Cluster Layout (node editor right-click > QP Shader Tools): lays out any node tree in framed clusters with every link going left to right, nested sub-frames, straight reroute rows and one Group Input per cluster",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.5.0/QP_Tools_V2.5.0.zip"
+        "version": "2.5.1",
+        "changelog": "- Cluster Layout: links between clusters share one lane per output, and lanes sit just above the frames they cross (shortest links lowest), so big trees get far fewer and lower lanes",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.5.1/QP_Tools_V2.5.1.zip"
     }
 }
