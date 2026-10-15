@@ -86,6 +86,9 @@ class QP_MT_ShaderTools(bpy.types.Menu):
             
         if is_module_enabled("LinkNodeGroups"):
             layout.operator("node.node_group_linker", icon='NETWORK_DRIVE')
+
+        if is_module_enabled("NodeLayout"):
+            layout.operator("node.qp_cluster_layout", icon='NODETREE')
             
         layout.separator()
 

@@ -67,6 +67,7 @@ class QP_OT_toggle_module(Operator):
         # Look up the description based on module property
         module_tooltips = {
             "link_node_groups_enabled": "Link node groups to nodes based on matching socket names",
+            "node_layout_enabled": "Lay node trees out in framed clusters with every link going left to right",
             "texture_set_builder_enabled": "Create texture sets from individual texture maps",
             "project_box_flat_enabled": "Set projection method (Box/Flat) and color space (sRGB/Non-Color) for texture nodes",
             "edge_select_enabled": "Mark edges for Draw Array EdgeSelect and manage vertex groups",
@@ -994,6 +995,11 @@ class QP_Tools_Preferences(AddonPreferences):
         default=True,
         update=update_module_state
     )
+    node_layout_enabled: BoolProperty(
+        name="Cluster Layout",
+        default=True,
+        update=update_module_state
+    )
     texture_set_builder_enabled: BoolProperty(
         name="TextureSet Builder",
         default=True,
@@ -1212,6 +1218,7 @@ class QP_Tools_Preferences(AddonPreferences):
             col1 = grid.column(align=True)
             col1.label(text="Node Editor Tools:", icon='NODETREE')
             draw_toggle_button(col1, "link_node_groups_enabled", "Link Node Groups")
+            draw_toggle_button(col1, "node_layout_enabled", "Cluster Layout")
             draw_toggle_button(col1, "texture_set_builder_enabled", "TextureSet Builder")
             draw_toggle_button(col1, "project_box_flat_enabled", "Project Box/Flat")
 

@@ -1,0 +1,832 @@
+"""Cluster Layout: lays a node tree out in framed functional clusters.
+
+Each geometry (or shader) step sits with the field nodes that feed it in a compact block; blocks follow the flow
+left to right with wider gaps, each in a labelled frame. Big blocks are split again into nested sub-frames (the
+parts that each feed one node). Every link goes left to right; links that skip columns get reroutes so they never
+run behind nodes. Existing frames are kept as clusters (Keep Frames), existing reroutes are replaced, so running
+it again gives the same result. Each cluster gets its own Group Input showing only the sockets it uses.
+Works on geometry, shader and other node trees.
+"""
+import sys
+import time
+
+import bpy
+from bpy.props import BoolProperty
+from bpy.types import Operator
+
+from .module_helper import ModuleManager
+
+# Module state variables
+module_enabled = True
+_is_registered = False
+
+GAP_X, GAP_Y = 40, 24            # inside a cluster
+CL_GAP_X, CL_GAP_Y = 180, 120    # between clusters
+MIN_CLUSTER = 4
+MAX_MERGED = 14
+FLOW_TYPES = {'GEOMETRY', 'SHADER'}
+SOCK_Y0, SOCK_DY = 33.5, 20.6    # first output socket below the node top, spacing (view units, measured in 5.2)
+_SCALE = [1.0]                   # node.dimensions / view units (the UI scale), set per tree by _measure_scale
+
+
+def _measure_scale(tree):
+    r = sorted(n.dimensions[0] / n.width for n in tree.nodes
+               if n.bl_idname not in ('NodeReroute', 'NodeFrame') and not n.hide and n.width > 1 and n.dimensions[0] > 1)
+    _SCALE[0] = r[len(r) // 2] if r else 1.0
+
+
+def _out_y(n, ident):
+    """Distance from the node top to the output socket `ident` (outputs are drawn first, under the header)."""
+    if n.bl_idname == 'NodeReroute':
+        return 0.0
+    if n.hide:
+        return 12.0
+    vis = [o for o in n.outputs if o.enabled and not o.hide]
+    i = next((j for j, o in enumerate(vis) if o.identifier == ident), 0)
+    return SOCK_Y0 + SOCK_DY * i
+
+
+def _h(n):
+    if getattr(n, "dimensions", None) and n.dimensions[1] > 1:
+        return n.dimensions[1] / _SCALE[0]
+    if n.bl_idname == 'NodeReroute':
+        return 20
+    rows = sum(1 for s in n.outputs if s.enabled and not s.hide)
+    for s in n.inputs:
+        if not s.enabled or s.hide:
+            continue
+        rows += 1
+        if not s.is_linked and s.type == 'VECTOR' and not s.hide_value:
+            rows += 2
+    props = 1 if any(p in n.bl_rna.properties for p in ("data_type", "operation", "domain", "mode")) else 0
+    return 36 + 22 * (rows + props)
+
+
+def _w(n):
+    if n.bl_idname == 'NodeReroute':
+        return 20
+    if getattr(n, "dimensions", None) and n.dimensions[0] > 1:
+        return n.dimensions[0] / _SCALE[0]
+    return n.width
+
+
+def _graph(tree):
+    nodes = [n for n in tree.nodes if n.bl_idname != 'NodeFrame']
+    names = {n.name for n in nodes}
+    preds = {k: set() for k in names}
+    succs = {k: set() for k in names}
+    for l in tree.links:
+        a, b = l.from_node.name, l.to_node.name
+        if a in names and b in names and a != b and not l.is_muted:
+            preds[b].add(a)
+            succs[a].add(b)
+    order, seen = [], set()
+
+    def visit(k):
+        if k in seen:
+            return
+        seen.add(k)
+        for p in sorted(preds[k]):
+            visit(p)
+        order.append(k)
+    for n in nodes:
+        visit(n.name)
+    return nodes, preds, succs, order
+
+
+def _is_flow(n):
+    if n.bl_idname in ('NodeGroupInput', 'NodeGroupOutput'):
+        return True
+    return any(s.type in FLOW_TYPES for s in list(n.inputs) + list(n.outputs) if s.enabled)
+
+
+def _set_loc(n, x, y):
+    if hasattr(n, "location_absolute"):
+        n.location_absolute = (x, y)
+    else:
+        n.location = (x, y)
+
+
+def _type_label(n):
+    if n.bl_idname == 'GeometryNodeStoreNamedAttribute' and not n.inputs["Name"].is_linked             and n.inputs["Name"].default_value:
+        return f"Store {n.inputs['Name'].default_value}"
+    if getattr(n, "node_tree", None):
+        return n.node_tree.name.lstrip(".")
+    return n.bl_label
+
+
+def _relink(tree, link, new_from):
+    """Move `link` to start at `new_from`. Removes the old link first: on a multi-input socket (Join Geometry...)
+    links.new() ADDS a link instead of replacing it, which would duplicate the connection."""
+    dst = link.to_socket
+    tree.links.remove(link)
+    return tree.links.new(new_from, dst)
+
+
+def _label(tree, members, key=None):
+    """Frame name: the main node's own label, else the most downstream labelled node, else the main node's type."""
+    io = ('NodeGroupInput', 'NodeGroupOutput')
+    flow = [k for k in members if _is_flow(tree.nodes[k]) and tree.nodes[k].bl_idname not in io]
+    main = key if key in members and tree.nodes[key].bl_idname not in io else (flow[-1] if flow else members[-1])
+    if tree.nodes[main].label:
+        return tree.nodes[main].label
+    labelled = [k for k in members if tree.nodes[k].label and tree.nodes[k].bl_idname not in io]
+    if labelled:
+        return tree.nodes[labelled[-1]].label
+    return _type_label(tree.nodes[main])
+
+
+def _merge_cycles(cl, succs):
+    """Clusters that feed each other (only possible with hand-made frames) can't be laid out left to right: each
+    such cycle (strongly connected component of the cluster graph) becomes one cluster, named after its biggest
+    member. The sub-cluster split then rebuilds the parts inside it."""
+    g = {c: set() for c in set(cl.values())}
+    for k, ss in succs.items():
+        for s_ in ss:
+            if k in cl and s_ in cl and cl[s_] != cl[k]:
+                g[cl[k]].add(cl[s_])
+    index, low, on, st, comp, i = {}, {}, set(), [], {}, 0
+    for root in sorted(g):                            # iterative Tarjan
+        if root in index:
+            continue
+        index[root] = low[root] = i
+        i += 1
+        st.append(root)
+        on.add(root)
+        work = [(root, iter(sorted(g[root])))]
+        while work:
+            v, it = work[-1]
+            w = next(it, None)
+            if w is not None:
+                if w not in index:
+                    index[w] = low[w] = i
+                    i += 1
+                    st.append(w)
+                    on.add(w)
+                    work.append((w, iter(sorted(g[w]))))
+                elif w in on:
+                    low[v] = min(low[v], index[w])
+                continue
+            work.pop()
+            if work:
+                low[work[-1][0]] = min(low[work[-1][0]], low[v])
+            if low[v] == index[v]:
+                scc = []
+                while True:
+                    x = st.pop()
+                    on.discard(x)
+                    scc.append(x)
+                    if x == v:
+                        break
+                if len(scc) > 1:
+                    for x in scc:
+                        comp[x] = scc
+    if comp:
+        size = {}
+        for c in cl.values():
+            size[c] = size.get(c, 0) + 1
+        best = {c: max(comp[c], key=lambda c_: (size[c_], c_)) for c in comp}
+        for k in cl:
+            if cl[k] in best:
+                cl[k] = best[cl[k]]
+
+
+def auto_clusters(tree):
+    """[(label, [node names])] in flow order."""
+    nodes, preds, succs, order = _graph(tree)
+    pos = {k: i for i, k in enumerate(order)}
+    framed = {}
+    for n in nodes:                                   # nested frames count as their outermost frame (the layout
+        f = n.parent                                  # makes its own sub-frames again; as clusters of their own
+        while f is not None and f.parent is not None:  # they would cycle with the rest of their parent)
+            f = f.parent
+        if f is not None:
+            framed.setdefault(f.name, []).append(n.name)
+    cl = {}                                           # node -> cluster key
+    if framed:
+        for f, ms in framed.items():
+            for k in ms:
+                cl[k] = "F:" + f
+    seeds = [k for k in order if k not in cl and _is_flow(tree.nodes[k]) and tree.nodes[k].bl_idname != 'NodeGroupInput']
+    for k in seeds:
+        cl[k] = k
+    cpos = {k: pos[k] for k in seeds}
+    for f, ms in framed.items():
+        cpos["F:" + f] = min(pos[k] for k in ms)
+    # field nodes (and Group Input nodes) join the first flow consumer they feed
+    for k in reversed(order):
+        if k in cl:
+            continue
+        tgt = [cl[s] for s in succs[k] if s in cl]
+        if tgt:
+            cl[k] = min(tgt, key=lambda c: cpos.get(c, 0))
+        else:
+            cl[k] = k
+            cpos[k] = pos[k]
+    _merge_cycles(cl, succs)
+    # merge tiny clusters along straight geometry chains
+    members = {}
+    for k in order:
+        members.setdefault(cl[k], []).append(k)
+    changed = True
+    while changed:
+        changed = False
+        for c in list(members):
+            if c.startswith("F:") or c not in members or len(members[c]) >= MIN_CLUSTER:
+                continue
+            nxt = {cl[s] for k in members[c] for s in succs[k]} - {c}
+            prv = {cl[p] for k in members[c] for p in preds[k]} - {c}
+            if len(nxt) == 1:
+                t = next(iter(nxt))
+                if not t.startswith("F:") and len(members[t]) + len(members[c]) <= MAX_MERGED:
+                    for k in members[c]:
+                        cl[k] = t
+                    members[t] = members[c] + members[t]
+                    del members[c]
+                    changed = True
+                    continue
+            if len(prv) == 1:
+                t = next(iter(prv))
+                if not t.startswith("F:") and len(members[t]) + len(members[c]) <= MAX_MERGED:
+                    for k in members[c]:
+                        cl[k] = t
+                    members[t] += members[c]
+                    del members[c]
+                    changed = True
+    out = []
+    for c, ms in sorted(members.items(), key=lambda kv: min(pos[k] for k in kv[1])):
+        lab = tree.nodes[c[2:]].label if c.startswith("F:") and tree.nodes[c[2:]].label else _label(tree, ms, c)
+        out.append((lab, ms))
+    return out
+
+
+SUB_MIN = 14          # clusters bigger than this are split into sub-clusters (nested frames)
+SUB_GAP_X, SUB_GAP_Y = 90, 60
+
+
+def _postdom_groups(tree, ms, preds, succs):
+    """Split a cluster into the parts that each feed ONE node (post-dominator subtrees), e.g. the per-slot chains
+    of a repeated computation. Returns [[names]] in dependency order, or [] when nothing is worth splitting."""
+    S = set(ms)
+    order = list(ms)
+    VS = "__sink__"
+    succ_in = {k: [s for s in succs[k] if s in S] or [VS] for k in order}
+    ipdom = {VS: VS}
+    rpo = list(reversed(order))                       # consumers first
+    idx = {VS: -1}
+    for i, k in enumerate(rpo):
+        idx[k] = i
+
+    def inter(x, y):
+        while x != y:
+            while idx[x] > idx[y]:
+                x = ipdom[x]
+            while idx[y] > idx[x]:
+                y = ipdom[y]
+        return x
+    changed = True
+    while changed:
+        changed = False
+        for k in rpo:
+            ss = [s for s in succ_in[k] if s in ipdom]
+            if not ss:
+                continue
+            new = ss[0]
+            for s in ss[1:]:
+                new = inter(new, s)
+            if ipdom.get(k) != new:
+                ipdom[k] = new
+                changed = True
+    kids = {}
+    for k in order:
+        kids.setdefault(ipdom.get(k, VS), []).append(k)
+
+    def subtree(k):
+        out, st = [], [k]
+        while st:
+            x = st.pop()
+            out.append(x)
+            st += kids.get(x, [])
+        return out
+    groups, taken = [], set()
+
+    def pick(root):
+        for c in kids.get(root, []):
+            t = subtree(c)
+            if 3 <= len(t) <= SUB_MIN:
+                groups.append(t)
+                taken.update(t)
+            elif len(t) > SUB_MIN:
+                pick(c)
+    pick(VS)
+    if len(groups) < 2:
+        return []
+    pos = {k: i for i, k in enumerate(order)}
+    out = [sorted(g, key=lambda k: pos[k]) for g in groups]
+    # the remaining nodes are NOT returned as a group: they stay individual nodes between the sub-clusters
+    # (as one block they would both feed and consume sub-clusters -> backward links)
+    return sorted(out, key=lambda g: max(pos[k] for k in g))
+
+
+def _add_reroutes(tree, ms, col, preds, succs):
+    """Links that skip columns inside a block get a reroute per crossed column, so they never pass behind nodes.
+    Returns [(source node, source socket identifier, [(column, reroute name)])] and rebuilds preds / succs for
+    the block."""
+    S = set(ms)
+    chains = {}
+    for l in list(tree.links):
+        a, b_ = l.from_node.name, l.to_node.name
+        if a not in S or b_ not in S or col[b_] - col[a] <= 1:
+            continue
+        chain = chains.setdefault((a, l.from_socket.identifier), {})
+        prev = l.from_socket
+        for c in range(col[a] + 1, col[b_]):
+            if c not in chain:
+                r = tree.nodes.new("NodeReroute")
+                tree.links.new(prev, r.inputs[0])
+                chain[c] = r
+            prev = chain[c].outputs[0]
+        _relink(tree, l, prev)
+    out = [(a, sid, sorted((c, r.name) for c, r in chain.items())) for (a, sid), chain in chains.items()]
+    names = S | {r for _, _, rs in out for _, r in rs}
+    for k in names:                                    # keep links to nodes outside the block
+        preds[k] = {q for q in preds.get(k, ()) if q not in names}
+        succs[k] = {q for q in succs.get(k, ()) if q not in names}
+    for l in tree.links:
+        a, b_ = l.from_node.name, l.to_node.name
+        if a in names and b_ in names:
+            preds[b_].add(a)
+            succs[a].add(b_)
+    return out
+
+
+def _layout_block(tree, ms, preds, succs, reroutes=True):
+    """Lay out one cluster at the origin; returns (locations, width, height)."""
+    S = set(ms)
+    col = {}
+    order = [k for k in ms]                                   # ms is already topological
+    for k in order:
+        col[k] = 1 + max((col[p] for p in preds[k] if p in S), default=-1)
+    last = max(col.values(), default=0)
+    for k in reversed(order):                                  # pull fields right, toward their consumer
+        if _is_flow(tree.nodes[k]):
+            continue
+        inside = [col[s] for s in succs[k] if s in S]
+        if inside:
+            col[k] = max(col[k], min(inside) - 1)
+    cols = [[] for _ in range(last + 1)]
+    for k in order:
+        cols[col[k]].append(k)
+    rank = {k: (0 if _is_flow(tree.nodes[k]) else 1, i) for c in cols for i, k in enumerate(c)}
+    for _ in range(4):
+        for c in cols:
+            for k in c:
+                nb = [rank[o][1] for o in list(preds[k]) + list(succs[k]) if o in S]
+                if nb:
+                    rank[k] = (rank[k][0], sum(nb) / len(nb))
+            c.sort(key=lambda k: rank[k])
+            for i, k in enumerate(c):
+                rank[k] = (rank[k][0], float(i))
+    chains = _add_reroutes(tree, order, col, preds, succs) if reroutes else []
+    rcols = {c for _, _, rs in chains for c, _ in rs}
+    x, H = 0.0, 0.0
+    loc, colx, colw, occ = {}, [], [], []
+    for ci, c in enumerate(cols):
+        w = max((_w(tree.nodes[k]) for k in c), default=20.0 if ci in rcols else 0.0)
+        colx.append(x)
+        colw.append(w)
+        occ.append([])
+        if not w:
+            continue
+        y = 0.0
+        for k in c:
+            loc[k] = (x, y)
+            h = _h(tree.nodes[k])
+            occ[ci].append((y - h, y))
+            y -= h + GAP_Y
+        H = max(H, -y)
+        x += w + GAP_X
+
+    # a chain runs straight at the height of its source socket, or at the nearest height that is free in every
+    # column it crosses (one bend down at the start instead of a zigzag)
+    def free(y, cs):
+        return all(not (lo - 14 < y < hi + 14) for c in cs for lo, hi in occ[c])
+
+    def src_y(ch):
+        return min(loc[ch[0]][1] - _out_y(tree.nodes[ch[0]], ch[1]), -10.0)
+
+    def tgt_key(ch):                         # chains that must bend take rows in the order of their targets
+        ls = tree.nodes[ch[2][-1][1]].outputs[0].links
+        if not ls or ls[0].to_node.name not in loc:
+            return (0.0, 0)
+        t = ls[0].to_socket
+        vis = [i for i in t.node.inputs if i.enabled and not i.hide]
+        return (-loc[t.node.name][1], vis.index(t) if t in vis else 0)
+
+    def place(ch, y):
+        for c, r in ch[2]:
+            loc[r] = (colx[c] + colw[c] * 0.5, y)
+            occ[c].append((y - 4, y + 4))
+    bent = []
+    for ch in sorted(chains, key=lambda ch: -src_y(ch)):
+        if free(src_y(ch), [c for c, _ in ch[2]]):
+            place(ch, src_y(ch))
+        else:
+            bent.append(ch)
+    for ch in sorted(bent, key=tgt_key):
+        cs = [c for c, _ in ch[2]]
+        y0 = y = src_y(ch)
+        for i in range(1, 400):
+            if free(y, cs):
+                break
+            d = 11.0 * ((i + 1) // 2) * (1 if i % 2 else -1)
+            y = min(y0 - d, -10.0)
+        place(ch, y)
+    for ch in chains:
+        H = max(H, -loc[ch[2][0][1]][1] + 20)
+    return loc, max(x - GAP_X, 0.0), H
+
+
+def _split_group_inputs(tree, groups):
+    """One Group Input per group (list of node names), showing only the sockets that group uses.
+    Returns the groups with the new Group Input nodes added."""
+    gid = {k: i for i, g in enumerate(groups) for k in g}
+    for gi in [tree.nodes[k] for g in groups for k in g if tree.nodes[k].bl_idname == 'NodeGroupInput']:
+        by_g = {}
+        for l in list(tree.links):
+            if l.from_node == gi and l.to_node.name in gid:
+                by_g.setdefault(gid[l.to_node.name], []).append(l)
+        if len(by_g) <= 1:
+            continue
+        home = gid.get(gi.name)
+        for g_i, ls in by_g.items():
+            if g_i == home:
+                continue
+            ng = tree.nodes.new("NodeGroupInput")
+            used = set()
+            for l in ls:
+                fid = l.from_socket.identifier
+                _relink(tree, l, next(o for o in ng.outputs if o.identifier == fid))
+                used.add(fid)
+            for o in ng.outputs:
+                o.hide = bool(o.identifier) and o.identifier not in used
+            groups[g_i].insert(0, ng.name)
+            gid[ng.name] = g_i
+        for o in gi.outputs:
+            o.hide = bool(o.identifier) and not o.is_linked
+    return groups
+
+
+def _layout_region(tree, ms, preds, succs):
+    """A cluster: one block, or (when big) a layered layout where each sub-cluster (post-dominator subtree) is one
+    big item among the remaining nodes, in its own nested frame. Every link still goes left to right.
+    Returns (locations, width, height, [(sub-frame label, member names)])."""
+    subs = _postdom_groups(tree, ms, preds, succs) if len(ms) > SUB_MIN else []
+    subs = [g for g in subs if len(g) >= 3 and len(g) < len(ms)]
+    if len(subs) < 2:
+        loc, w, h = _layout_block(tree, ms, preds, succs)
+        return loc, w, h, []
+    rest_ = [k for k in ms if not any(k in g for g in subs)]
+    groups_ = _split_group_inputs(tree, [list(g) for g in subs] + [rest_])
+    subs, rest_ = groups_[:-1], groups_[-1]
+    ms = [k for g in groups_ for k in g]
+    nodes_, preds2, succs2, order_ = _graph(tree)
+    for k in nodes_:
+        preds.setdefault(k.name, set())
+        succs.setdefault(k.name, set())
+    for k, v in preds2.items():
+        preds[k] = v
+    for k, v in succs2.items():
+        succs[k] = v
+    po = {k: i for i, k in enumerate(order_)}
+    subs = [sorted(g, key=lambda k: po[k]) for g in subs]
+    ms = sorted(ms, key=lambda k: po[k])
+    S = set(ms)
+    item_of = {}
+    for i, g in enumerate(subs):
+        for k in g:
+            item_of[k] = ("g", i)
+    for k in ms:
+        item_of.setdefault(k, ("n", k))
+    blocks = {("g", i): _layout_block(tree, g, preds, succs) for i, g in enumerate(subs)}
+    for it, (bl, _, _) in blocks.items():             # reroutes made inside a sub-cluster belong to it
+        for k in bl:
+            item_of.setdefault(k, it)
+    items = list(dict.fromkeys(item_of[k] for k in ms))
+    ip = {it: set() for it in items}
+    for k in list(item_of):
+        for pk in preds.get(k, ()):
+            if pk in item_of and item_of[pk] != item_of[k]:
+                ip[item_of[k]].add(item_of[pk])
+    # longest-path columns over the contracted graph (Kahn; ms is topological so cycles cannot occur)
+    col, done = {}, set()
+    while len(done) < len(items):
+        ready = [it for it in items if it not in done and not (ip[it] - done)]
+        if not ready:
+            ready = [next(it for it in items if it not in done)]
+        for it in ready:
+            col[it] = 1 + max((col[q] for q in ip[it] if q in col), default=-1)
+            done.add(it)
+
+    def size(it):
+        if it[0] == "g":
+            return blocks[it][1], blocks[it][2]
+        n = tree.nodes[it[1]]
+        return _w(n), _h(n)
+    ncol = max(col.values()) + 1
+    colw = [0.0] * ncol
+    for it in items:
+        colw[col[it]] = max(colw[col[it]], size(it)[0])
+    xs, x = [], 0.0
+    for c in range(ncol):
+        xs.append(x)
+        x += colw[c] + SUB_GAP_X
+    loc, ys, nested, H = {}, {}, [], 0.0
+    for it in items:
+        c = col[it]
+        y = ys.get(c, 0.0)
+        w_, h_ = size(it)
+        if it[0] == "g":
+            for k, (lx, ly) in blocks[it][0].items():
+                loc[k] = (xs[c] + lx, y + ly)
+            nested.append((_label(tree, subs[it[1]], subs[it[1]][-1]), list(blocks[it][0])))
+            ys[c] = y - h_ - SUB_GAP_Y - 30
+        else:
+            loc[it[1]] = (xs[c], y)
+            ys[c] = y - h_ - GAP_Y
+        H = max(H, -ys[c])
+    return loc, max(x - SUB_GAP_X, 0.0), H, nested
+
+
+def _dissolve_reroutes(tree):
+    """Replace every reroute chain by direct links (planned first by names / identifiers, then applied)."""
+    rr = {n.name for n in tree.nodes if n.bl_idname == 'NodeReroute'}
+    if not rr:
+        return
+
+    def source(sock):                        # real output socket feeding `sock` through reroutes
+        while sock.links:
+            fs = sock.links[0].from_socket
+            if fs.node.name in rr:
+                sock = fs.node.inputs[0]
+                continue
+            return fs
+        return None
+    plan = set()
+    for n in tree.nodes:
+        if n.name in rr:
+            continue
+        for s_ in n.inputs:
+            for l in s_.links:
+                if l.from_node.name in rr:
+                    src = source(l.from_node.inputs[0])
+                    if src is not None:
+                        plan.add((src.node.name, src.identifier, n.name, s_.identifier))
+    for nm_ in rr:
+        tree.nodes.remove(tree.nodes[nm_])
+    for fn, fi, tn, ti in plan:
+        fs = next(o for o in tree.nodes[fn].outputs if o.identifier == fi)
+        ts = next(i for i in tree.nodes[tn].inputs if i.identifier == ti)
+        tree.links.new(fs, ts)
+
+
+def _thin_reroutes(tree):
+    """Remove the reroutes in the middle of a straight row: a reroute at the height of what feeds it, feeding only
+    reroutes on the same row, adds nothing (only the ones where the line bends are kept)."""
+    def y_of(n):
+        return n.location_absolute.y if hasattr(n, "location_absolute") else n.location.y
+    changed = True
+    while changed:
+        changed = False
+        for nm in [n.name for n in tree.nodes if n.bl_idname == 'NodeReroute']:
+            r = tree.nodes.get(nm)
+            if r is None or len(r.inputs[0].links) != 1 or not r.outputs[0].links:
+                continue
+            src = r.inputs[0].links[0].from_socket
+            y = y_of(r)
+            sy = y_of(src.node) - _out_y(src.node, src.identifier)
+            outs = r.outputs[0].links
+            if abs(sy - y) > 1 or any(l.to_node.bl_idname != 'NodeReroute' or abs(y_of(l.to_node) - y) > 1 for l in outs):
+                continue
+            fn, fi = src.node.name, src.identifier          # by name: socket references go stale on removal
+            dsts = [l.to_node.name for l in outs]
+            tree.nodes.remove(r)
+            fs = next(o for o in tree.nodes[fn].outputs if o.identifier == fi)
+            for d in dsts:
+                tree.links.new(fs, tree.nodes[d].inputs[0])
+            changed = True
+
+
+def _drop_frames(tree):
+    for f in [n for n in tree.nodes if n.bl_idname == 'NodeFrame']:
+        for n in tree.nodes:
+            if n.parent == f:
+                n.parent = None
+        tree.nodes.remove(f)
+
+
+def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_frames=True):
+    """Lay out `tree` in labelled clusters. clusters: [(label, [node names])] or None for auto_clusters().
+    Existing reroutes are dissolved first (the layout adds its own), so running it again gives the same result
+    instead of turning old reroutes into clusters of their own. keep_frames=False ignores the existing frames
+    (they are removed and the clusters are found from the graph)."""
+    _measure_scale(tree)
+    _dissolve_reroutes(tree)
+    if not keep_frames:
+        _drop_frames(tree)
+    nodes, preds, succs, order = _graph(tree)
+    if clusters is None:
+        clusters = auto_clusters(tree)
+    pos = {k: i for i, k in enumerate(order)}
+    clusters = [(lab, sorted(ms, key=lambda k: pos[k])) for lab, ms in clusters if ms]
+    cid = {k: i for i, (_, ms) in enumerate(clusters) for k in ms}
+    if split_inputs:
+        # one Group Input per cluster, showing only the sockets that cluster uses (no long fan-out wires)
+        for gi in [n for n in nodes if n.bl_idname == 'NodeGroupInput']:
+            by_cl = {}
+            for l in list(tree.links):
+                if l.from_node == gi and l.to_node.name in cid:
+                    by_cl.setdefault(cid[l.to_node.name], []).append(l)
+            if len(by_cl) <= 1:
+                continue
+            home = cid.get(gi.name)
+            for ci, ls in by_cl.items():
+                if ci == home:
+                    continue
+                ng = tree.nodes.new("NodeGroupInput")
+                used = set()
+                for l in ls:
+                    fid = l.from_socket.identifier
+                    _relink(tree, l, next(o for o in ng.outputs if o.identifier == fid))
+                    used.add(fid)
+                for o in ng.outputs:
+                    o.hide = bool(o.identifier) and o.identifier not in used
+                clusters[ci][1].insert(0, ng.name)
+                cid[ng.name] = ci
+            for o in gi.outputs:
+                o.hide = bool(o.identifier) and not o.is_linked
+        nodes, preds, succs, order = _graph(tree)
+        pos = {k: i for i, k in enumerate(order)}
+        clusters = [(lab, sorted(ms, key=lambda k: pos[k])) for lab, ms in clusters]
+    for n in nodes:                                            # unassigned nodes get their own cluster
+        if n.name not in cid:
+            cid[n.name] = len(clusters)
+            clusters.append((n.label or n.bl_label, [n.name]))
+    if frames:                                                 # old frames are replaced
+        _drop_frames(tree)
+    blocks = [_layout_region(tree, ms, preds, succs) for _, ms in clusters]
+    for i, bl in enumerate(blocks):                         # reroutes created inside a cluster belong to it
+        for k in bl[0]:
+            cid.setdefault(k, i)
+    # cluster graph
+    cp = {i: set() for i in range(len(clusters))}
+    for k, ps in preds.items():
+        for p in ps:
+            if cid[p] != cid[k]:
+                cp[cid[k]].add(cid[p])
+    # cluster columns in dependency order (Kahn), so every link goes left -> right; a cycle (possible only with
+    # hand-made frames) is broken at the cluster whose first node comes earliest
+    first = {i: min(pos[k] for k in clusters[i][1]) for i in range(len(clusters))}
+    left = {i: set(cp[i]) for i in range(len(clusters))}
+    ccol, done = {}, set()
+    while len(done) < len(clusters):
+        ready = [i for i in left if i not in done and not (left[i] - done)]
+        if not ready:
+            ready = [min((i for i in left if i not in done), key=lambda i: first[i])]
+        for i in sorted(ready, key=lambda i: first[i]):
+            ccol[i] = 1 + max((ccol[p] for p in cp[i] if p in ccol), default=-1)
+            done.add(i)
+    # main chain: clusters on the path ending at the Group Output
+    outs = [n.name for n in nodes if n.bl_idname in ('NodeGroupOutput', 'ShaderNodeOutputMaterial')]
+    main = set()
+    if outs:
+        cur = cid[outs[0]]
+        while cur not in main:                      # clusters need not be convex: guard against cycles
+            main.add(cur)
+            flow_p = [p for p in cp[cur] if p not in main and any(_is_flow(tree.nodes[k]) for k in clusters[p][1])]
+            if not flow_p:
+                break
+            cur = max(flow_p, key=lambda p: ccol[p])
+    ncol = max(ccol.values(), default=0) + 1
+    colw = [0.0] * ncol
+    for i, bl in enumerate(blocks):
+        colw[ccol[i]] = max(colw[ccol[i]], bl[1])
+    colx, x = [], 0.0
+    for c in range(ncol):
+        colx.append(x)
+        x += colw[c] + CL_GAP_X
+    by_col = {}
+    for i in range(len(clusters)):
+        by_col.setdefault(ccol[i], []).append(i)
+    for c, ids in by_col.items():
+        ids.sort(key=lambda i: (i not in main, min(pos[k] for k in clusters[i][1])))
+        y = 0.0
+        for i in ids:
+            loc, w, h, nested = blocks[i]
+            ox, oy = colx[c] + (colw[c] - w) * 0.5 * (i not in main), y
+            frame = None
+            if frames and len(clusters[i][1]) > 1:
+                frame = tree.nodes.new("NodeFrame")
+                frame.label = clusters[i][0]
+                frame.label_size = 16
+            sub_of = {}
+            if frame is not None:
+                for lab_, mem_ in nested:
+                    sf = tree.nodes.new("NodeFrame")
+                    sf.label = lab_
+                    sf.label_size = 12
+                    sf.parent = frame
+                    for k in mem_:
+                        sub_of[k] = sf
+            for k, (lx, ly) in loc.items():
+                n = tree.nodes[k]
+                if frame is not None:
+                    n.parent = sub_of.get(k, frame)
+                _set_loc(n, ox + lx, oy + ly)
+            y -= h + CL_GAP_Y + 40
+    # links that skip cluster columns run along lanes above everything, through reroutes in the gaps
+    lane = 0
+    gapx = [colx[c] - CL_GAP_X * 0.5 for c in range(ncol)]
+    for l in list(tree.links):
+        a, b_ = l.from_node.name, l.to_node.name
+        if a not in cid or b_ not in cid or tree.nodes[a].bl_idname == 'NodeGroupInput':
+            continue
+        ca, cb = ccol[cid[a]], ccol[cid[b_]]
+        if cb - ca <= 1:
+            continue
+        lane += 1
+        ly = 160 + 28 * lane
+        prev = l.from_socket
+        for c in range(ca + 1, cb + 1):
+            r = tree.nodes.new("NodeReroute")
+            _set_loc(r, gapx[c], ly)
+            tree.links.new(prev, r.inputs[0])
+            prev = r.outputs[0]
+        _relink(tree, l, prev)
+    _thin_reroutes(tree)
+    return {"clusters": len(clusters), "main": len(main), "lanes": lane}
+
+
+def layout_detached(tree, **kw):
+    """layout_clusters() on a group while nothing uses it. Editing a group that other trees use makes Blender
+    update every user tree after each edit (minutes for big shared groups); so its users are pointed at a
+    placeholder copy for the duration, then pointed back. Material / world trees are laid out directly."""
+    if tree.is_embedded_data or tree.users - (1 if tree.use_fake_user else 0) <= 0:
+        return layout_clusters(tree, **kw)
+    ph = tree.copy()
+    tree.user_remap(ph)
+    try:
+        return layout_clusters(tree, **kw)
+    finally:
+        ph.user_remap(tree)
+        bpy.data.node_groups.remove(ph)
+
+
+class NODE_OT_qp_cluster_layout(Operator):
+    """Lay the node tree out in framed clusters, every link going left to right"""
+    bl_idname = "node.qp_cluster_layout"
+    bl_label = "Cluster Layout"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    keep_frames: BoolProperty(
+        name="Keep Frames",
+        description="Use the existing frames as clusters. Off: the frames are removed and the clusters are found "
+                    "from the node graph (frames where links leave and come back can't be laid out left to right)",
+        default=True,
+    )
+    frames: BoolProperty(
+        name="Frames",
+        description="Put each cluster in a labelled frame",
+        default=True,
+    )
+    split_inputs: BoolProperty(
+        name="Split Group Inputs",
+        description="One Group Input per cluster, showing only the sockets it uses",
+        default=True,
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return (module_enabled and context.space_data is not None
+                and context.space_data.type == 'NODE_EDITOR' and context.space_data.edit_tree is not None)
+
+    def execute(self, context):
+        tree = context.space_data.edit_tree
+        t0 = time.perf_counter()
+        res = layout_detached(tree, frames=self.frames, split_inputs=self.split_inputs, keep_frames=self.keep_frames)
+        self.report({'INFO'}, f"{res['clusters']} clusters laid out in {time.perf_counter() - t0:.1f} s")
+        return {'FINISHED'}
+
+
+def register():
+    if not ModuleManager.register_module(sys.modules[__name__]):
+        return
+
+    ModuleManager.safe_register_class(NODE_OT_qp_cluster_layout)
+
+
+def unregister():
+    if not ModuleManager.unregister_module(sys.modules[__name__]):
+        return
+
+    ModuleManager.safe_unregister_class(NODE_OT_qp_cluster_layout)

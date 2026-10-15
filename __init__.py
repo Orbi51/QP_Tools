@@ -35,6 +35,7 @@ modules = [
     "FloatingPanel",
     "LatticeSetup",
     "LinkNodeGroups",
+    "NodeLayout",
     "MaterialList",
     "Project_Box_Flat",
     "TextureSet_builder",

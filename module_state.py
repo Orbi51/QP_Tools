@@ -10,6 +10,7 @@ def is_module_enabled(module_name):
         # Map module names to preference property names
         preference_map = {
             "LinkNodeGroups": "link_node_groups_enabled",
+            "NodeLayout": "node_layout_enabled",
             "TextureSet_builder": "texture_set_builder_enabled",
             "Project_Box_Flat": "project_box_flat_enabled",
             "EdgeSelect": "edge_select_enabled",
