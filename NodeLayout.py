@@ -698,6 +698,16 @@ def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_fr
         for i in sorted(ready, key=lambda i: first[i]):
             ccol[i] = 1 + max((ccol[p] for p in cp[i] if p in ccol), default=-1)
             done.add(i)
+    # pull each cluster right, to the column before its first consumer: clusters with no inputs of their own
+    # (Collection Info, Object Info...) would otherwise sit in column 0 and send links across the whole tree
+    cs = {i: set() for i in range(len(clusters))}
+    for i, ps in cp.items():
+        for p in ps:
+            cs[p].add(i)
+    for i in sorted(ccol, key=lambda i: -ccol[i]):
+        nxt = [ccol[s] for s in cs[i] if ccol[s] > ccol[i]]
+        if nxt:
+            ccol[i] = min(nxt) - 1
     # main chain: clusters on the path ending at the Group Output
     outs = [n.name for n in nodes if n.bl_idname in ('NodeGroupOutput', 'ShaderNodeOutputMaterial')]
     main = set()
