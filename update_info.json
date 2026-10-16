@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.5.2",
-        "changelog": "- Cluster Layout: each cluster is placed just before its first consumer instead of as early as possible, so clusters with no inputs of their own (Collection Info, Object Info...) no longer sit at the far left sending links across the whole tree",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.5.2/QP_Tools_V2.5.2.zip"
+        "version": "2.5.3",
+        "changelog": "- Cluster Layout opens a popup with a Scope choice: Selected Nodes (lays out only the selected nodes and the nodes in selected frames, where they are, leaving the rest of the tree alone), All Nodes (previous behaviour), Full Tree (also lays out every local node group nested inside the tree)",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.5.3/QP_Tools_V2.5.3.zip"
     }
 }
