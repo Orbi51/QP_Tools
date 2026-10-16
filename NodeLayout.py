@@ -11,7 +11,7 @@ import sys
 import time
 
 import bpy
-from bpy.props import BoolProperty
+from bpy.props import BoolProperty, EnumProperty
 from bpy.types import Operator
 
 from .module_helper import ModuleManager
@@ -72,8 +72,8 @@ def _w(n):
     return n.width
 
 
-def _graph(tree):
-    nodes = [n for n in tree.nodes if n.bl_idname != 'NodeFrame']
+def _graph(tree, only=None):
+    nodes = [n for n in tree.nodes if n.bl_idname != 'NodeFrame' and (only is None or n.name in only)]
     names = {n.name for n in nodes}
     preds = {k: set() for k in names}
     succs = {k: set() for k in names}
@@ -107,6 +107,17 @@ def _set_loc(n, x, y):
         n.location_absolute = (x, y)
     else:
         n.location = (x, y)
+
+
+def _abs_loc(n):
+    loc = n.location_absolute if hasattr(n, "location_absolute") else n.location
+    return loc[0], loc[1]
+
+
+def _corner(tree, names):
+    """Top-left corner (min x, max y) of the named nodes."""
+    pts = [_abs_loc(tree.nodes[k]) for k in names if tree.nodes[k].bl_idname != 'NodeFrame']
+    return min(p[0] for p in pts), max(p[1] for p in pts)
 
 
 def _type_label(n):
@@ -193,9 +204,9 @@ def _merge_cycles(cl, succs):
                 cl[k] = best[cl[k]]
 
 
-def auto_clusters(tree):
+def auto_clusters(tree, only=None):
     """[(label, [node names])] in flow order."""
-    nodes, preds, succs, order = _graph(tree)
+    nodes, preds, succs, order = _graph(tree, only)
     pos = {k: i for i, k in enumerate(order)}
     framed = {}
     for n in nodes:                                   # nested frames count as their outermost frame (the layout
@@ -479,7 +490,7 @@ def _split_group_inputs(tree, groups):
     return groups
 
 
-def _layout_region(tree, ms, preds, succs):
+def _layout_region(tree, ms, preds, succs, only=None):
     """A cluster: one block, or (when big) a layered layout where each sub-cluster (post-dominator subtree) is one
     big item among the remaining nodes, in its own nested frame. Every link still goes left to right.
     Returns (locations, width, height, [(sub-frame label, member names)])."""
@@ -492,7 +503,9 @@ def _layout_region(tree, ms, preds, succs):
     groups_ = _split_group_inputs(tree, [list(g) for g in subs] + [rest_])
     subs, rest_ = groups_[:-1], groups_[-1]
     ms = [k for g in groups_ for k in g]
-    nodes_, preds2, succs2, order_ = _graph(tree)
+    if only is not None:
+        only.update(ms)                                # the new Group Inputs belong to the laid-out nodes
+    nodes_, preds2, succs2, order_ = _graph(tree, only)
     for k in nodes_:
         preds.setdefault(k.name, set())
         succs.setdefault(k.name, set())
@@ -560,9 +573,9 @@ def _layout_region(tree, ms, preds, succs):
     return loc, max(x - SUB_GAP_X, 0.0), H, nested
 
 
-def _dissolve_reroutes(tree):
+def _dissolve_reroutes(tree, only=None):
     """Replace every reroute chain by direct links (planned first by names / identifiers, then applied)."""
-    rr = {n.name for n in tree.nodes if n.bl_idname == 'NodeReroute'}
+    rr = {n.name for n in tree.nodes if n.bl_idname == 'NodeReroute' and (only is None or n.name in only)}
     if not rr:
         return
 
@@ -592,7 +605,7 @@ def _dissolve_reroutes(tree):
         tree.links.new(fs, ts)
 
 
-def _thin_reroutes(tree):
+def _thin_reroutes(tree, only=None):
     """Remove the reroutes in the middle of a straight row: a reroute at the height of what feeds it, feeding only
     reroutes on the same row, adds nothing (only the ones where the line bends are kept)."""
     def y_of(n):
@@ -600,7 +613,7 @@ def _thin_reroutes(tree):
     changed = True
     while changed:
         changed = False
-        for nm in [n.name for n in tree.nodes if n.bl_idname == 'NodeReroute']:
+        for nm in [n.name for n in tree.nodes if n.bl_idname == 'NodeReroute' and (only is None or n.name in only)]:
             r = tree.nodes.get(nm)
             if r is None or len(r.inputs[0].links) != 1 or not r.outputs[0].links:
                 continue
@@ -619,26 +632,50 @@ def _thin_reroutes(tree):
             changed = True
 
 
-def _drop_frames(tree):
-    for f in [n for n in tree.nodes if n.bl_idname == 'NodeFrame']:
+def _drop_frames(tree, only=None):
+    """Remove the frames (only=None), or take the `only` nodes out of their frames and remove the frames left empty."""
+    touched = set()
+    if only is not None:
         for n in tree.nodes:
-            if n.parent == f:
+            if n.name in only and n.bl_idname != 'NodeFrame':
+                f = n.parent
+                while f is not None:
+                    touched.add(f.name)
+                    f = f.parent
                 n.parent = None
-        tree.nodes.remove(f)
+    while True:
+        empty = [f for f in tree.nodes if f.bl_idname == 'NodeFrame'
+                 and (only is None or (f.name in touched and not any(n.parent == f for n in tree.nodes)))]
+        if not empty:
+            return
+        for f in empty:
+            for n in tree.nodes:
+                if n.parent == f:
+                    n.parent = None
+            tree.nodes.remove(f)
 
 
-def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_frames=True):
+def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_frames=True, only=None):
     """Lay out `tree` in labelled clusters. clusters: [(label, [node names])] or None for auto_clusters().
     Existing reroutes are dissolved first (the layout adds its own), so running it again gives the same result
     instead of turning old reroutes into clusters of their own. keep_frames=False ignores the existing frames
-    (they are removed and the clusters are found from the graph)."""
+    (they are removed and the clusters are found from the graph).
+    only: node names to lay out (the rest of the tree is left alone); the result keeps their top-left corner."""
     _measure_scale(tree)
-    _dissolve_reroutes(tree)
+    anchor = None
+    if only is not None:
+        only = {k for k in only if k in tree.nodes and tree.nodes[k].bl_idname != 'NodeFrame'}
+        if not only:
+            return {"clusters": 0, "main": 0, "lanes": 0}
+        anchor = _corner(tree, only)
+    _dissolve_reroutes(tree, only)
+    if only is not None:
+        only = {k for k in only if k in tree.nodes}
     if not keep_frames:
-        _drop_frames(tree)
-    nodes, preds, succs, order = _graph(tree)
+        _drop_frames(tree, only)
+    nodes, preds, succs, order = _graph(tree, only)
     if clusters is None:
-        clusters = auto_clusters(tree)
+        clusters = auto_clusters(tree, only)
     pos = {k: i for i, k in enumerate(order)}
     clusters = [(lab, sorted(ms, key=lambda k: pos[k])) for lab, ms in clusters if ms]
     cid = {k: i for i, (_, ms) in enumerate(clusters) for k in ms}
@@ -665,9 +702,11 @@ def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_fr
                     o.hide = bool(o.identifier) and o.identifier not in used
                 clusters[ci][1].insert(0, ng.name)
                 cid[ng.name] = ci
+                if only is not None:
+                    only.add(ng.name)
             for o in gi.outputs:
                 o.hide = bool(o.identifier) and not o.is_linked
-        nodes, preds, succs, order = _graph(tree)
+        nodes, preds, succs, order = _graph(tree, only)
         pos = {k: i for i, k in enumerate(order)}
         clusters = [(lab, sorted(ms, key=lambda k: pos[k])) for lab, ms in clusters]
     for n in nodes:                                            # unassigned nodes get their own cluster
@@ -675,8 +714,8 @@ def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_fr
             cid[n.name] = len(clusters)
             clusters.append((n.label or n.bl_label, [n.name]))
     if frames:                                                 # old frames are replaced
-        _drop_frames(tree)
-    blocks = [_layout_region(tree, ms, preds, succs) for _, ms in clusters]
+        _drop_frames(tree, only)
+    blocks = [_layout_region(tree, ms, preds, succs, only) for _, ms in clusters]
     for i, bl in enumerate(blocks):                         # reroutes created inside a cluster belong to it
         for k in bl[0]:
             cid.setdefault(k, i)
@@ -793,13 +832,25 @@ def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_fr
         chain = {}
         for c in range(lo, hi + 1):
             r = tree.nodes.new("NodeReroute")
+            if only is not None:
+                only.add(r.name)
             _set_loc(r, gapx[c], ly)
             tree.links.new(prev, r.inputs[0])
             prev = chain[c] = r.outputs[0]
         for l in ls:
             _relink(tree, l, chain[ccol[cid[l.to_node.name]]])
     lane = len(ys)
-    _thin_reroutes(tree)
+    if only is not None:                                   # reroutes made inside clusters are laid-out nodes too
+        only.update(k for bl in blocks for k in bl[0])
+    _thin_reroutes(tree, only)
+    if anchor is not None:                                 # back where the selection was
+        only = {k for k in only if k in tree.nodes}
+        x0, y0 = _corner(tree, only)
+        for k in only:
+            n = tree.nodes[k]
+            if n.bl_idname != 'NodeFrame':
+                x, y = _abs_loc(n)
+                _set_loc(n, x + anchor[0] - x0, y + anchor[1] - y0)
     return {"clusters": len(clusters), "main": len(main), "lanes": lane}
 
 
@@ -818,12 +869,52 @@ def layout_detached(tree, **kw):
         bpy.data.node_groups.remove(ph)
 
 
+def nested_groups(tree):
+    """Local node groups used inside `tree`, at any depth (linked ones can't be edited), innermost first."""
+    out, seen = [], {tree.name}
+
+    def visit(t):
+        for n in t.nodes:
+            ng = getattr(n, "node_tree", None)
+            if ng is None or ng.name in seen or ng.library is not None or ng.bl_idname != tree.bl_idname:
+                continue
+            seen.add(ng.name)
+            visit(ng)
+            out.append(ng)
+    visit(tree)
+    return out
+
+
+def _selected(tree):
+    """Selected nodes, plus everything inside a selected frame."""
+    sel = {n.name for n in tree.nodes if n.select and n.bl_idname != 'NodeFrame'}
+    frames = {n for n in tree.nodes if n.select and n.bl_idname == 'NodeFrame'}
+    for n in tree.nodes:
+        f = n.parent
+        while f is not None:
+            if f in frames and n.bl_idname != 'NodeFrame':
+                sel.add(n.name)
+                break
+            f = f.parent
+    return sel
+
+
 class NODE_OT_qp_cluster_layout(Operator):
     """Lay the node tree out in framed clusters, every link going left to right"""
     bl_idname = "node.qp_cluster_layout"
     bl_label = "Cluster Layout"
     bl_options = {'REGISTER', 'UNDO'}
 
+    scope: EnumProperty(
+        name="Scope",
+        items=[
+            ('SELECTED', "Selected Nodes", "Lay out the selected nodes (and the nodes in selected frames) where they "
+                                           "are, leaving the rest of the tree alone"),
+            ('ALL', "All Nodes", "Lay out every node of the current tree"),
+            ('FULL', "Full Tree", "Lay out the current tree and every node group nested inside it"),
+        ],
+        default='ALL',
+    )
     keep_frames: BoolProperty(
         name="Keep Frames",
         description="Use the existing frames as clusters. Off: the frames are removed and the clusters are found "
@@ -846,11 +937,37 @@ class NODE_OT_qp_cluster_layout(Operator):
         return (module_enabled and context.space_data is not None
                 and context.space_data.type == 'NODE_EDITOR' and context.space_data.edit_tree is not None)
 
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=320)
+
+    def draw(self, context):
+        col = self.layout.column()
+        col.prop(self, "scope", expand=True)
+        col.separator()
+        col.prop(self, "keep_frames")
+        col.prop(self, "frames")
+        col.prop(self, "split_inputs")
+
     def execute(self, context):
         tree = context.space_data.edit_tree
+        kw = dict(frames=self.frames, split_inputs=self.split_inputs, keep_frames=self.keep_frames)
         t0 = time.perf_counter()
-        res = layout_detached(tree, frames=self.frames, split_inputs=self.split_inputs, keep_frames=self.keep_frames)
-        self.report({'INFO'}, f"{res['clusters']} clusters laid out in {time.perf_counter() - t0:.1f} s")
+        if self.scope == 'SELECTED':
+            sel = _selected(tree)
+            if not sel:
+                self.report({'WARNING'}, "No nodes selected")
+                return {'CANCELLED'}
+            res = layout_detached(tree, only=sel, **kw)
+            msg = f"{res['clusters']} clusters"
+        elif self.scope == 'FULL':
+            groups = nested_groups(tree)
+            n = sum(layout_detached(ng, **kw)["clusters"] for ng in groups)
+            res = layout_detached(tree, **kw)
+            msg = f"{res['clusters'] + n} clusters in {len(groups) + 1} trees"
+        else:
+            res = layout_detached(tree, **kw)
+            msg = f"{res['clusters']} clusters"
+        self.report({'INFO'}, f"{msg} laid out in {time.perf_counter() - t0:.1f} s")
         return {'FINISHED'}
 
 
