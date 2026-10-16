@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.5.1",
-        "changelog": "- Cluster Layout: links between clusters share one lane per output, and lanes sit just above the frames they cross (shortest links lowest), so big trees get far fewer and lower lanes",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.5.1/QP_Tools_V2.5.1.zip"
+        "version": "2.5.2",
+        "changelog": "- Cluster Layout: each cluster is placed just before its first consumer instead of as early as possible, so clusters with no inputs of their own (Collection Info, Object Info...) no longer sit at the far left sending links across the whole tree",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.5.2/QP_Tools_V2.5.2.zip"
     }
 }
