@@ -1,8 +1,9 @@
 """Cluster Layout: lays a node tree out in framed functional clusters.
 
 Each geometry (or shader) step sits with the field nodes that feed it in a compact block; blocks follow the flow
-left to right with wider gaps, each in a labelled frame. Big blocks are split again into nested sub-frames (the
-parts that each feed one node). Every link goes left to right; links that skip columns get reroutes so they never
+left to right with wider gaps, each in a labelled frame. A big block made of several steps (typically a kept
+frame) is laid out the same way inside, its steps in nested sub-frames; other big blocks are split into the parts
+that each feed one node. Every link goes left to right; links that skip columns get reroutes so they never
 run behind nodes. Existing frames are kept as clusters (Keep Frames), existing reroutes are replaced, so running
 it again gives the same result. Each cluster gets its own Group Input showing only the sockets it uses.
 Works on geometry, shader and other node trees.
@@ -100,6 +101,12 @@ def _is_flow(n):
     if n.bl_idname in ('NodeGroupInput', 'NodeGroupOutput'):
         return True
     return any(s.type in FLOW_TYPES for s in list(n.inputs) + list(n.outputs) if s.enabled)
+
+
+def _size(tree, names):
+    """Node count without the Group Inputs: the layout makes one per cluster, so counting them would make the
+    second run cluster differently from the first."""
+    return sum(1 for k in names if tree.nodes[k].bl_idname != 'NodeGroupInput')
 
 
 def _set_loc(n, x, y):
@@ -237,21 +244,24 @@ def auto_clusters(tree, only=None):
             cl[k] = k
             cpos[k] = pos[k]
     _merge_cycles(cl, succs)
-    # merge tiny clusters along straight geometry chains
+    # merge tiny clusters along straight geometry chains (in the order of their first node that is not a Group Input:
+    # the layout splits those, so they would change the merge order on the next run)
     members = {}
-    for k in order:
-        members.setdefault(cl[k], []).append(k)
+    for gi in (False, True):
+        for k in order:
+            if (tree.nodes[k].bl_idname == 'NodeGroupInput') == gi:
+                members.setdefault(cl[k], []).append(k)
     changed = True
     while changed:
         changed = False
         for c in list(members):
-            if c.startswith("F:") or c not in members or len(members[c]) >= MIN_CLUSTER:
+            if c.startswith("F:") or c not in members or _size(tree, members[c]) >= MIN_CLUSTER:
                 continue
             nxt = {cl[s] for k in members[c] for s in succs[k]} - {c}
             prv = {cl[p] for k in members[c] for p in preds[k]} - {c}
             if len(nxt) == 1:
                 t = next(iter(nxt))
-                if not t.startswith("F:") and len(members[t]) + len(members[c]) <= MAX_MERGED:
+                if not t.startswith("F:") and _size(tree, members[t]) + _size(tree, members[c]) <= MAX_MERGED:
                     for k in members[c]:
                         cl[k] = t
                     members[t] = members[c] + members[t]
@@ -260,7 +270,7 @@ def auto_clusters(tree, only=None):
                     continue
             if len(prv) == 1:
                 t = next(iter(prv))
-                if not t.startswith("F:") and len(members[t]) + len(members[c]) <= MAX_MERGED:
+                if not t.startswith("F:") and _size(tree, members[t]) + _size(tree, members[c]) <= MAX_MERGED:
                     for k in members[c]:
                         cl[k] = t
                     members[t] += members[c]
@@ -326,10 +336,10 @@ def _postdom_groups(tree, ms, preds, succs):
     def pick(root):
         for c in kids.get(root, []):
             t = subtree(c)
-            if 3 <= len(t) <= SUB_MIN:
+            if 3 <= _size(tree, t) <= SUB_MIN:
                 groups.append(t)
                 taken.update(t)
-            elif len(t) > SUB_MIN:
+            elif _size(tree, t) > SUB_MIN:
                 pick(c)
     pick(VS)
     if len(groups) < 2:
@@ -373,6 +383,17 @@ def _add_reroutes(tree, ms, col, preds, succs):
     return out
 
 
+def _entry_chain(tree, order, S, preds):
+    """Flow nodes fed from outside S, or from such a node: the chain that enters the block. They keep the leftmost
+    column they can take; everything else (fields, Group Inputs, Object Info, chains that start inside the
+    block) can move right to sit next to its consumer."""
+    fixed = set()
+    for k in order:
+        if _is_flow(tree.nodes[k]) and any(p not in S or p in fixed for p in preds[k]):
+            fixed.add(k)
+    return fixed
+
+
 def _layout_block(tree, ms, preds, succs, reroutes=True):
     """Lay out one cluster at the origin; returns (locations, width, height)."""
     S = set(ms)
@@ -381,8 +402,9 @@ def _layout_block(tree, ms, preds, succs, reroutes=True):
     for k in order:
         col[k] = 1 + max((col[p] for p in preds[k] if p in S), default=-1)
     last = max(col.values(), default=0)
-    for k in reversed(order):                                  # pull fields right, toward their consumer
-        if _is_flow(tree.nodes[k]):
+    fixed = _entry_chain(tree, order, S, preds)
+    for k in reversed(order):                                  # pull the rest right, toward their consumer
+        if k in fixed:
             continue
         inside = [col[s] for s in succs[k] if s in S]
         if inside:
@@ -490,19 +512,8 @@ def _split_group_inputs(tree, groups):
     return groups
 
 
-def _layout_region(tree, ms, preds, succs, only=None):
-    """A cluster: one block, or (when big) a layered layout where each sub-cluster (post-dominator subtree) is one
-    big item among the remaining nodes, in its own nested frame. Every link still goes left to right.
-    Returns (locations, width, height, [(sub-frame label, member names)])."""
-    subs = _postdom_groups(tree, ms, preds, succs) if len(ms) > SUB_MIN else []
-    subs = [g for g in subs if len(g) >= 3 and len(g) < len(ms)]
-    if len(subs) < 2:
-        loc, w, h = _layout_block(tree, ms, preds, succs)
-        return loc, w, h, []
-    rest_ = [k for k in ms if not any(k in g for g in subs)]
-    groups_ = _split_group_inputs(tree, [list(g) for g in subs] + [rest_])
-    subs, rest_ = groups_[:-1], groups_[-1]
-    ms = [k for g in groups_ for k in g]
+def _refresh_graph(tree, ms, preds, succs, only):
+    """Rebuild preds / succs in place after Group Inputs were split; returns the new topological positions."""
     if only is not None:
         only.update(ms)                                # the new Group Inputs belong to the laid-out nodes
     nodes_, preds2, succs2, order_ = _graph(tree, only)
@@ -513,7 +524,44 @@ def _layout_region(tree, ms, preds, succs, only=None):
         preds[k] = v
     for k, v in succs2.items():
         succs[k] = v
-    po = {k: i for i, k in enumerate(order_)}
+    return {k: i for i, k in enumerate(order_)}
+
+
+def _layout_steps(tree, steps, preds, succs, only, frames):
+    """A big cluster laid out like a tree of its own: each step [(label, names)] in its own sub-frame, the steps in
+    columns along the cluster's main chain, with lanes for the links that skip steps."""
+    groups = _split_group_inputs(tree, [list(g) for _, g in steps])
+    po = _refresh_graph(tree, [k for g in groups for k in g], preds, succs, only)
+    steps = [(lab, sorted(g, key=lambda k: po[k])) for (lab, _), g in zip(steps, groups)]
+    flow = [k for g in groups for k in g if _is_flow(tree.nodes[k]) and tree.nodes[k].bl_idname != 'NodeGroupInput']
+    sink = max(flow, key=lambda k: po[k]) if flow else None
+    loc, w, h, specs, _, _ = _arrange(tree, steps, preds, succs, po, only, frames, SUB_GAP_X, SUB_GAP_Y + 30, sink)
+    top = max((y for _, y in loc.values()), default=0.0)
+    if top > 0:                                        # lanes run above the steps: the cluster starts at the top lane
+        loc = {k: (x, y - top) for k, (x, y) in loc.items()}
+        h += top
+    return loc, w, h, specs
+
+
+def _layout_region(tree, ms, preds, succs, only=None, frames=True):
+    """A cluster: one block, or (when big) a nested layout. A big cluster made of several steps (typically a kept
+    frame) is laid out like a tree of its own (_layout_steps); otherwise each sub-cluster (post-dominator subtree)
+    is one big item among the remaining nodes, in its own nested frame. Every link still goes left to right.
+    Returns (locations, width, height, [(sub-frame label, member names, nested sub-frames)])."""
+    if _size(tree, ms) > SUB_MIN:
+        steps = auto_clusters(tree, set(ms))
+        if sum(1 for _, g in steps if _size(tree, g) >= 3) >= 2:
+            return _layout_steps(tree, steps, preds, succs, only, frames)
+    subs = _postdom_groups(tree, ms, preds, succs) if _size(tree, ms) > SUB_MIN else []
+    subs = [g for g in subs if _size(tree, g) >= 3 and len(g) < len(ms)]
+    if len(subs) < 2:
+        loc, w, h = _layout_block(tree, ms, preds, succs)
+        return loc, w, h, []
+    rest_ = [k for k in ms if not any(k in g for g in subs)]
+    groups_ = _split_group_inputs(tree, [list(g) for g in subs] + [rest_])
+    subs, rest_ = groups_[:-1], groups_[-1]
+    ms = [k for g in groups_ for k in g]
+    po = _refresh_graph(tree, ms, preds, succs, only)
     subs = [sorted(g, key=lambda k: po[k]) for g in subs]
     ms = sorted(ms, key=lambda k: po[k])
     S = set(ms)
@@ -534,7 +582,7 @@ def _layout_region(tree, ms, preds, succs, only=None):
             if pk in item_of and item_of[pk] != item_of[k]:
                 ip[item_of[k]].add(item_of[pk])
     # longest-path columns over the contracted graph (Kahn; ms is topological so cycles cannot occur)
-    col, done = {}, set()
+    col, done, topo = {}, set(), []
     while len(done) < len(items):
         ready = [it for it in items if it not in done and not (ip[it] - done)]
         if not ready:
@@ -542,6 +590,18 @@ def _layout_region(tree, ms, preds, succs, only=None):
         for it in ready:
             col[it] = 1 + max((col[q] for q in ip[it] if q in col), default=-1)
             done.add(it)
+            topo.append(it)
+    # pull the items off the entry chain right, toward their consumer (as in _layout_block)
+    fixed = _entry_chain(tree, ms, S, preds)
+    isucc = {it: set() for it in items}
+    for it, ps in ip.items():
+        for q in ps:
+            isucc[q].add(it)
+    for it in reversed(topo):
+        if any(k in fixed for k in ([it[1]] if it[0] == "n" else subs[it[1]])):
+            continue
+        if isucc[it]:
+            col[it] = max(col[it], min(col[s] for s in isucc[it]) - 1)
 
     def size(it):
         if it[0] == "g":
@@ -564,7 +624,7 @@ def _layout_region(tree, ms, preds, succs, only=None):
         if it[0] == "g":
             for k, (lx, ly) in blocks[it][0].items():
                 loc[k] = (xs[c] + lx, y + ly)
-            nested.append((_label(tree, subs[it[1]], subs[it[1]][-1]), list(blocks[it][0])))
+            nested.append((_label(tree, subs[it[1]], subs[it[1]][-1]), list(blocks[it][0]), []))
             ys[c] = y - h_ - SUB_GAP_Y - 30
         else:
             loc[it[1]] = (xs[c], y)
@@ -655,6 +715,159 @@ def _drop_frames(tree, only=None):
             tree.nodes.remove(f)
 
 
+def _drop_unlinked_inputs(tree, only=None):
+    """Group Input nodes with no links do nothing: remove them, keeping one if the tree would have none."""
+    gis = [n for n in tree.nodes if n.bl_idname == 'NodeGroupInput']
+    dead = [n for n in gis if (only is None or n.name in only) and not any(o.is_linked for o in n.outputs)]
+    if len(dead) == len(gis):
+        dead = dead[1:]
+    for n in dead:
+        tree.nodes.remove(n)
+
+
+def _depth(specs):
+    """Nesting depth of frame specs [(label, names, nested specs)]."""
+    return 1 + max(_depth(kids) for _, _, kids in specs) if specs else 0
+
+
+def _make_frames(tree, specs, parent, size, parent_of):
+    """Create the frames of `specs` inside `parent`; parent_of[name] = the innermost frame of each node."""
+    for lab, names, kids in specs:
+        f = tree.nodes.new("NodeFrame")
+        f.label = lab
+        f.label_size = size
+        f.parent = parent
+        for k in names:
+            parent_of[k] = f
+        _make_frames(tree, kids, f, 12, parent_of)
+
+
+def _arrange(tree, clusters, preds, succs, pos, only, frames, gap_x, gap_y, sink):
+    """Lay clusters [(label, [names in topological order])] out at the origin: each cluster a block (_layout_region),
+    blocks in dependency columns, the main chain (ending at the cluster of `sink`) on the top row, links that skip
+    columns on lanes above. Returns (locations, width, height, frame specs [(label, names, nested specs)],
+    main chain length, lane count). Frames are not created here, so a cluster can arrange its own steps."""
+    cid = {k: i for i, (_, ms) in enumerate(clusters) for k in ms}
+    blocks = [_layout_region(tree, ms, preds, succs, only, frames) for _, ms in clusters]
+    for i, bl in enumerate(blocks):                         # reroutes created inside a cluster belong to it
+        for k in bl[0]:
+            cid.setdefault(k, i)
+    # cluster graph
+    cp = {i: set() for i in range(len(clusters))}
+    for k in cid:
+        for p in preds.get(k, ()):
+            if p in cid and cid[p] != cid[k]:
+                cp[cid[k]].add(cid[p])
+    # cluster columns in dependency order (Kahn), so every link goes left -> right; a cycle (possible only with
+    # hand-made frames) is broken at the cluster whose first node comes earliest
+    first = {}                                      # first node that is not a Group Input (those are split per cluster)
+    for i, (_, ms) in enumerate(clusters):
+        first[i] = min((pos[k] for k in ms if tree.nodes[k].bl_idname != 'NodeGroupInput'),
+                       default=min(pos[k] for k in ms))
+    left = {i: set(cp[i]) for i in range(len(clusters))}
+    ccol, done = {}, set()
+    while len(done) < len(clusters):
+        ready = [i for i in left if i not in done and not (left[i] - done)]
+        if not ready:
+            ready = [min((i for i in left if i not in done), key=lambda i: first[i])]
+        for i in sorted(ready, key=lambda i: first[i]):
+            ccol[i] = 1 + max((ccol[p] for p in cp[i] if p in ccol), default=-1)
+            done.add(i)
+    # pull each cluster right, to the column before its first consumer: clusters with no inputs of their own
+    # (Collection Info, Object Info...) would otherwise sit in column 0 and send links across the whole tree.
+    # Inside a cluster, the steps on the chain that enters it stay at the entry.
+    fixed = _entry_chain(tree, sorted((k for _, ms in clusters for k in ms), key=lambda k: pos[k]), set(cid), preds)
+    cs = {i: set() for i in range(len(clusters))}
+    for i, ps in cp.items():
+        for p in ps:
+            cs[p].add(i)
+    for i in sorted(ccol, key=lambda i: -ccol[i]):
+        if any(k in fixed for k in clusters[i][1]):
+            continue
+        nxt = [ccol[s] for s in cs[i] if ccol[s] > ccol[i]]
+        if nxt:
+            ccol[i] = min(nxt) - 1
+    # main chain: clusters on the path ending at the sink
+    main = set()
+    if sink in cid:
+        cur = cid[sink]
+        while cur not in main:                      # clusters need not be convex: guard against cycles
+            main.add(cur)
+            flow_p = [p for p in cp[cur] if p not in main and any(_is_flow(tree.nodes[k]) for k in clusters[p][1])]
+            if not flow_p:
+                break
+            cur = max(flow_p, key=lambda p: ccol[p])
+    ncol = max(ccol.values(), default=0) + 1
+    colw = [0.0] * ncol
+    for i, bl in enumerate(blocks):
+        colw[ccol[i]] = max(colw[ccol[i]], bl[1])
+    colx, x = [], 0.0
+    for c in range(ncol):
+        colx.append(x)
+        x += colw[c] + gap_x
+    by_col = {}
+    for i in range(len(clusters)):
+        by_col.setdefault(ccol[i], []).append(i)
+    loc, specs, H = {}, [], 0.0
+    for c, ids in by_col.items():
+        ids.sort(key=lambda i: (i not in main, first[i]))
+        y = 0.0
+        for i in ids:
+            bl, w, h, nested = blocks[i]
+            ox, oy = colx[c] + (colw[c] - w) * 0.5 * (i not in main), y
+            for k, (lx, ly) in bl.items():
+                loc[k] = (ox + lx, oy + ly)
+            if len(clusters[i][1]) > 1:
+                specs.append((clusters[i][0], list(bl), nested))
+            H = max(H, h - oy)
+            y -= h + gap_y
+    # links that skip cluster columns run on lanes above the clusters, through reroutes in the gaps. One lane per
+    # source socket (its far targets branch off it). Shortest jumps first, each lane takes the lowest height above the
+    # frames it crosses that no lane already uses over its stretch (it can slot under a higher lane once the lanes
+    # in between have ended), so short links hug the frames and only long ones run high.
+    gapx = [colx[c] - gap_x * 0.5 for c in range(ncol)]
+    by_src = {}
+    for l in list(tree.links):
+        a, b_ = l.from_node.name, l.to_node.name
+        if a not in cid or b_ not in cid or tree.nodes[a].bl_idname == 'NodeGroupInput':
+            continue
+        if ccol[cid[b_]] - ccol[cid[a]] > 1:
+            by_src.setdefault((a, l.from_socket.identifier), []).append(l)
+    jobs = []
+    for (a, sid), ls in by_src.items():
+        lo, hi = ccol[cid[a]] + 1, max(ccol[cid[l.to_node.name]] for l in ls)
+        jobs.append((hi - lo, lo, a, sid, ls))
+    ctop = [0.0] * ncol                                    # top of each column: its first cluster's frame
+    for c, ids in by_col.items():
+        if frames and len(clusters[ids[0]][1]) > 1:
+            ctop[c] = FRAME_TOP + SUB_FRAME_TOP * _depth(blocks[ids[0]][3])
+    used = {}                                              # gap -> heights of the lanes through it
+    ys = set()
+    for _, lo, a, sid, ls in sorted(jobs, key=lambda j: (j[0], j[1], j[2], j[3])):
+        hi = max(ccol[cid[l.to_node.name]] for l in ls)
+        ly = max(ctop[c] + LANE_GAP for c in range(lo, hi))
+        while True:
+            hit = [y_ for g in range(lo, hi + 1) for y_ in used.get(g, ()) if abs(y_ - ly) < LANE_GAP - 0.1]
+            if not hit:
+                break
+            ly = max(hit) + LANE_GAP
+        for g in range(lo, hi + 1):
+            used.setdefault(g, []).append(ly)
+        ys.add(round(ly))
+        prev = next(o for o in tree.nodes[a].outputs if o.identifier == sid)
+        chain = {}
+        for c in range(lo, hi + 1):
+            r = tree.nodes.new("NodeReroute")
+            if only is not None:
+                only.add(r.name)
+            loc[r.name] = (gapx[c], ly)
+            tree.links.new(prev, r.inputs[0])
+            prev = chain[c] = r.outputs[0]
+        for l in ls:
+            _relink(tree, l, chain[ccol[cid[l.to_node.name]]])
+    return loc, max(x - gap_x, 0.0), H, specs, len(main), len(ys)
+
+
 def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_frames=True, only=None):
     """Lay out `tree` in labelled clusters. clusters: [(label, [node names])] or None for auto_clusters().
     Existing reroutes are dissolved first (the layout adds its own), so running it again gives the same result
@@ -669,6 +882,7 @@ def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_fr
             return {"clusters": 0, "main": 0, "lanes": 0}
         anchor = _corner(tree, only)
     _dissolve_reroutes(tree, only)
+    _drop_unlinked_inputs(tree, only)
     if only is not None:
         only = {k for k in only if k in tree.nodes}
     if not keep_frames:
@@ -715,133 +929,19 @@ def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_fr
             clusters.append((n.label or n.bl_label, [n.name]))
     if frames:                                                 # old frames are replaced
         _drop_frames(tree, only)
-    blocks = [_layout_region(tree, ms, preds, succs, only) for _, ms in clusters]
-    for i, bl in enumerate(blocks):                         # reroutes created inside a cluster belong to it
-        for k in bl[0]:
-            cid.setdefault(k, i)
-    # cluster graph
-    cp = {i: set() for i in range(len(clusters))}
-    for k, ps in preds.items():
-        for p in ps:
-            if cid[p] != cid[k]:
-                cp[cid[k]].add(cid[p])
-    # cluster columns in dependency order (Kahn), so every link goes left -> right; a cycle (possible only with
-    # hand-made frames) is broken at the cluster whose first node comes earliest
-    first = {i: min(pos[k] for k in clusters[i][1]) for i in range(len(clusters))}
-    left = {i: set(cp[i]) for i in range(len(clusters))}
-    ccol, done = {}, set()
-    while len(done) < len(clusters):
-        ready = [i for i in left if i not in done and not (left[i] - done)]
-        if not ready:
-            ready = [min((i for i in left if i not in done), key=lambda i: first[i])]
-        for i in sorted(ready, key=lambda i: first[i]):
-            ccol[i] = 1 + max((ccol[p] for p in cp[i] if p in ccol), default=-1)
-            done.add(i)
-    # pull each cluster right, to the column before its first consumer: clusters with no inputs of their own
-    # (Collection Info, Object Info...) would otherwise sit in column 0 and send links across the whole tree
-    cs = {i: set() for i in range(len(clusters))}
-    for i, ps in cp.items():
-        for p in ps:
-            cs[p].add(i)
-    for i in sorted(ccol, key=lambda i: -ccol[i]):
-        nxt = [ccol[s] for s in cs[i] if ccol[s] > ccol[i]]
-        if nxt:
-            ccol[i] = min(nxt) - 1
-    # main chain: clusters on the path ending at the Group Output
     outs = [n.name for n in nodes if n.bl_idname in ('NodeGroupOutput', 'ShaderNodeOutputMaterial')]
-    main = set()
-    if outs:
-        cur = cid[outs[0]]
-        while cur not in main:                      # clusters need not be convex: guard against cycles
-            main.add(cur)
-            flow_p = [p for p in cp[cur] if p not in main and any(_is_flow(tree.nodes[k]) for k in clusters[p][1])]
-            if not flow_p:
-                break
-            cur = max(flow_p, key=lambda p: ccol[p])
-    ncol = max(ccol.values(), default=0) + 1
-    colw = [0.0] * ncol
-    for i, bl in enumerate(blocks):
-        colw[ccol[i]] = max(colw[ccol[i]], bl[1])
-    colx, x = [], 0.0
-    for c in range(ncol):
-        colx.append(x)
-        x += colw[c] + CL_GAP_X
-    by_col = {}
-    for i in range(len(clusters)):
-        by_col.setdefault(ccol[i], []).append(i)
-    for c, ids in by_col.items():
-        ids.sort(key=lambda i: (i not in main, min(pos[k] for k in clusters[i][1])))
-        y = 0.0
-        for i in ids:
-            loc, w, h, nested = blocks[i]
-            ox, oy = colx[c] + (colw[c] - w) * 0.5 * (i not in main), y
-            frame = None
-            if frames and len(clusters[i][1]) > 1:
-                frame = tree.nodes.new("NodeFrame")
-                frame.label = clusters[i][0]
-                frame.label_size = 16
-            sub_of = {}
-            if frame is not None:
-                for lab_, mem_ in nested:
-                    sf = tree.nodes.new("NodeFrame")
-                    sf.label = lab_
-                    sf.label_size = 12
-                    sf.parent = frame
-                    for k in mem_:
-                        sub_of[k] = sf
-            for k, (lx, ly) in loc.items():
-                n = tree.nodes[k]
-                if frame is not None:
-                    n.parent = sub_of.get(k, frame)
-                _set_loc(n, ox + lx, oy + ly)
-            y -= h + CL_GAP_Y + 40
-    # links that skip cluster columns run on lanes above the clusters, through reroutes in the gaps. One lane per
-    # source socket (its far targets branch off it). Shortest jumps first, each lane takes the lowest height above the
-    # frames it crosses that no lane already uses over its stretch (it can slot under a higher lane once the lanes
-    # in between have ended), so short links hug the frames and only long ones run high.
-    gapx = [colx[c] - CL_GAP_X * 0.5 for c in range(ncol)]
-    by_src = {}
-    for l in list(tree.links):
-        a, b_ = l.from_node.name, l.to_node.name
-        if a not in cid or b_ not in cid or tree.nodes[a].bl_idname == 'NodeGroupInput':
-            continue
-        if ccol[cid[b_]] - ccol[cid[a]] > 1:
-            by_src.setdefault((a, l.from_socket.identifier), []).append(l)
-    jobs = []
-    for (a, sid), ls in by_src.items():
-        lo, hi = ccol[cid[a]] + 1, max(ccol[cid[l.to_node.name]] for l in ls)
-        jobs.append((hi - lo, lo, a, sid, ls))
-    ctop = [0.0] * ncol                                    # top of each column: its first cluster's frame
-    for c, ids in by_col.items():
-        if frames and len(clusters[ids[0]][1]) > 1:
-            ctop[c] = FRAME_TOP + (SUB_FRAME_TOP if blocks[ids[0]][3] else 0.0)
-    used = {}                                              # gap -> heights of the lanes through it
-    ys = set()
-    for _, lo, a, sid, ls in sorted(jobs, key=lambda j: (j[0], j[1], j[2], j[3])):
-        hi = max(ccol[cid[l.to_node.name]] for l in ls)
-        ly = max(ctop[c] + LANE_GAP for c in range(lo, hi))
-        while True:
-            hit = [y_ for g in range(lo, hi + 1) for y_ in used.get(g, ()) if abs(y_ - ly) < LANE_GAP - 0.1]
-            if not hit:
-                break
-            ly = max(hit) + LANE_GAP
-        for g in range(lo, hi + 1):
-            used.setdefault(g, []).append(ly)
-        ys.add(round(ly))
-        prev = next(o for o in tree.nodes[a].outputs if o.identifier == sid)
-        chain = {}
-        for c in range(lo, hi + 1):
-            r = tree.nodes.new("NodeReroute")
-            if only is not None:
-                only.add(r.name)
-            _set_loc(r, gapx[c], ly)
-            tree.links.new(prev, r.inputs[0])
-            prev = chain[c] = r.outputs[0]
-        for l in ls:
-            _relink(tree, l, chain[ccol[cid[l.to_node.name]]])
-    lane = len(ys)
+    loc, _, _, specs, main, lane = _arrange(tree, clusters, preds, succs, pos, only, frames,
+                                            CL_GAP_X, CL_GAP_Y + 40, outs[0] if outs else None)
+    parent_of = {}
+    if frames:
+        _make_frames(tree, specs, None, 16, parent_of)
+    for k, (x, y) in loc.items():
+        n = tree.nodes[k]
+        if k in parent_of:
+            n.parent = parent_of[k]
+        _set_loc(n, x, y)
     if only is not None:                                   # reroutes made inside clusters are laid-out nodes too
-        only.update(k for bl in blocks for k in bl[0])
+        only.update(loc)
     _thin_reroutes(tree, only)
     if anchor is not None:                                 # back where the selection was
         only = {k for k in only if k in tree.nodes}
@@ -851,7 +951,7 @@ def layout_clusters(tree, clusters=None, frames=True, split_inputs=True, keep_fr
             if n.bl_idname != 'NodeFrame':
                 x, y = _abs_loc(n)
                 _set_loc(n, x + anchor[0] - x0, y + anchor[1] - y0)
-    return {"clusters": len(clusters), "main": len(main), "lanes": lane}
+    return {"clusters": len(clusters), "main": main, "lanes": lane}
 
 
 def layout_detached(tree, **kw):
