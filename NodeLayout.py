@@ -28,6 +28,9 @@ FRAME_TOP, SUB_FRAME_TOP = 30.0, 38.0   # frame top above its top nodes; extra w
 LANE_GAP = 26.0                        # lane above the frame / lane under it
 MAX_MERGED = 14
 FLOW_TYPES = {'GEOMETRY', 'SHADER'}
+# reroutes of these types can break the tree (an Image reroute in a 5.2 shader group drops every socket of its group
+# nodes); such links are routed directly
+NO_REROUTE = {'NodeSocketImage', 'NodeSocketMenu', 'NodeSocketShader', 'NodeSocketBundle', 'NodeSocketClosure'}
 SOCK_Y0, SOCK_DY = 33.5, 20.6    # first output socket below the node top, spacing (view units, measured in 5.2)
 _SCALE = [1.0]                   # node.dimensions / view units (the UI scale), set per tree by _measure_scale
 
@@ -359,7 +362,7 @@ def _add_reroutes(tree, ms, col, preds, succs):
     chains = {}
     for l in list(tree.links):
         a, b_ = l.from_node.name, l.to_node.name
-        if a not in S or b_ not in S or col[b_] - col[a] <= 1:
+        if a not in S or b_ not in S or col[b_] - col[a] <= 1 or l.from_socket.bl_idname in NO_REROUTE:
             continue
         chain = chains.setdefault((a, l.from_socket.identifier), {})
         prev = l.from_socket
@@ -829,7 +832,8 @@ def _arrange(tree, clusters, preds, succs, pos, only, frames, gap_x, gap_y, sink
     by_src = {}
     for l in list(tree.links):
         a, b_ = l.from_node.name, l.to_node.name
-        if a not in cid or b_ not in cid or tree.nodes[a].bl_idname == 'NodeGroupInput':
+        if (a not in cid or b_ not in cid or tree.nodes[a].bl_idname == 'NodeGroupInput'
+                or l.from_socket.bl_idname in NO_REROUTE):
             continue
         if ccol[cid[b_]] - ccol[cid[a]] > 1:
             by_src.setdefault((a, l.from_socket.identifier), []).append(l)
