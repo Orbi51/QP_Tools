@@ -1,7 +1,7 @@
 {
     "addon": {
-        "version": "2.5.4",
-        "changelog": "- Cluster Layout: inside big frames (typically frames made by hand), each function step gets its own labelled sub-frame, laid out like the rest of the tree: main chain on the top row, lanes for the links that skip steps\n- Cluster Layout: Group Inputs, input nodes (Position, Index, Object Info...) and node groups with no inputs sit next to the node they feed instead of piling up in the first column of their frame\n- Cluster Layout: Group Input nodes connected to nothing are removed\n- Cluster Layout: running it a second time gives the same result",
-        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.5.4/QP_Tools_V2.5.4.zip"
+        "version": "2.5.5",
+        "changelog": "- Cluster Layout: links carrying Image, Menu, Shader, Bundle or Closure sockets are no longer routed through reroutes. An Image reroute in a shader group made every group node using it lose all its sockets (Blender 5.2); these links now go straight to their target",
+        "download_url": "https://github.com/Orbi51/QP_Tools/releases/download/v2.5.5/QP_Tools_V2.5.5.zip"
     }
 }
